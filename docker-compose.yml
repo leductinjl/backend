@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: candidate_api
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      - DOCKER_ENV=true
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+      - neo4j
+      - redis
+    networks:
+      - candidate_network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: candidate_postgres
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - candidate_network
+
+  neo4j:
+    image: neo4j:5-enterprise
+    container_name: candidate_neo4j
+    restart: always
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    environment:
+      - NEO4J_AUTH=${NEO4J_USER}/${NEO4J_PASSWORD}
+      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_import:/var/lib/neo4j/import
+      - neo4j_plugins:/plugins
+    networks:
+      - candidate_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: candidate_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    command: >
+      --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    networks:
+      - candidate_network
+
+networks:
+  candidate_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  neo4j_logs:
+  neo4j_import:
+  neo4j_plugins:
+  redis_data: 
