@@ -96,7 +96,7 @@ class RedisCache:
             logging.error(f"Error getting data from Redis: {e}")
             return None
 
-    async def set(self, key, value, expires=None):
+    async def set(self, key, value, ex=None, expire_seconds=None):
         """
         Store data in cache.
         
@@ -106,7 +106,8 @@ class RedisCache:
         Args:
             key (str): The cache key to store under
             value (Any): The data to cache
-            expires (int, optional): Expiration time in seconds. Defaults to None.
+            ex (int, optional): Expiration time in seconds. Defaults to None.
+            expire_seconds (int, optional): Alias for ex, for backward compatibility. Defaults to None.
             
         Returns:
             bool: True if successful, False otherwise
@@ -115,9 +116,12 @@ class RedisCache:
             Dictionaries, lists, and tuples are automatically serialized to JSON
         """
         try:
+            # Use ex if provided, otherwise use expire_seconds
+            expiry = ex if ex is not None else expire_seconds
+            
             if isinstance(value, (dict, list, tuple)):
                 value = json.dumps(value)
-            await self._client.set(key, value, ex=expires)
+            await self._client.set(key, value, ex=expiry)
             return True
         except Exception as e:
             logging.error(f"Error setting data to Redis: {e}")
@@ -158,6 +162,19 @@ class RedisCache:
         except Exception as e:
             logging.error(f"Error getting TTL from Redis: {e}")
             return -2
+
+    async def ping(self):
+        """
+        Ping the Redis server to check if it's alive.
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            return await self._client.ping()
+        except Exception as e:
+            logging.error(f"Error pinging Redis: {e}")
+            raise
 
 # Initialize Redis cache
 redis_cache = RedisCache()

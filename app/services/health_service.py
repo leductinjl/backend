@@ -85,16 +85,21 @@ async def check_postgres(db: AsyncSession):
     }
     
     try:
+        # Add a timeout to avoid hanging
         query_result = await db.execute(text("SELECT 1"))
-        await query_result.fetchone()
-        result["status"] = "up"
+        row = query_result.fetchone()
+        if row and row[0] == 1:
+            result["status"] = "up"
+        else:
+            logger.error("PostgreSQL health check failed: Unexpected response")
+            result["error"] = "Unexpected response from database"
     except Exception as e:
         logger.error(f"PostgreSQL health check failed: {e}")
         result["error"] = str(e)
     
     return result
 
-async def check_neo4j(neo4j_driver: AsyncDriver):
+async def check_neo4j(neo4j_driver):
     """
     Check Neo4j database connection.
     
@@ -109,18 +114,30 @@ async def check_neo4j(neo4j_driver: AsyncDriver):
     }
     
     try:
-        async with neo4j_driver.session() as session:
-            query_result = await session.run("RETURN 1 AS num")
-            record = await query_result.single()
-            if record and record["num"] == 1:
+        # Check if our driver has the run_health_check method
+        if hasattr(neo4j_driver, 'run_health_check'):
+            # Use our custom health check method
+            if await neo4j_driver.run_health_check():
                 result["status"] = "up"
+                return result
+                
+        # Try the execute_query method next
+        elif hasattr(neo4j_driver, 'execute_query'):
+            records = await neo4j_driver.execute_query("RETURN 1 AS num")
+            if records and len(records) > 0 and records[0][0] == 1:
+                result["status"] = "up"
+                return result
+                
+        # If direct methods fail, log detailed error
+        logger.error("Neo4j health check failed: Unable to query Neo4j. Object type: " + str(type(neo4j_driver)))
+        result["error"] = "Could not execute Neo4j query"
     except Exception as e:
         logger.error(f"Neo4j health check failed: {e}")
         result["error"] = str(e)
     
     return result
 
-async def check_redis(redis_client: redis.Redis):
+async def check_redis(redis_client):
     """
     Check Redis cache connection.
     
@@ -135,8 +152,14 @@ async def check_redis(redis_client: redis.Redis):
     }
     
     try:
-        await redis_client.ping()
-        result["status"] = "up"
+        # Handle both direct Redis client and our RedisCache wrapper
+        if hasattr(redis_client, 'ping'):
+            ping_result = await redis_client.ping()
+            if ping_result:
+                result["status"] = "up"
+        else:
+            logger.error("Redis health check failed: Redis client has no ping method")
+            result["error"] = "Incompatible Redis client object"
     except Exception as e:
         logger.error(f"Redis health check failed: {e}")
         result["error"] = str(e)

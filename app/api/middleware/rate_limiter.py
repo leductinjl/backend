@@ -79,12 +79,12 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         
         if current_count is None:
             # First request from this client in this window
-            await self.redis_cache.set(redis_key, 1, expires=self.window_seconds)
+            await self.redis_cache.set(redis_key, 1, ex=self.window_seconds)
             current_count = 1
         else:
             # Increment the request counter
             current_count = int(current_count) + 1
-            await self.redis_cache.set(redis_key, current_count, expires=self.window_seconds)
+            await self.redis_cache.set(redis_key, current_count, ex=self.window_seconds)
         
         # Check if rate limit is exceeded
         if current_count > self.requests_limit:

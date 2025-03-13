@@ -82,14 +82,34 @@ class Neo4jConnection:
             if not self._driver:
                 await self.connect()
             
-            async_session = self._driver.async_session(database=self._database)
-            async with async_session as session:
+            async with self._driver.session(database=self._database) as session:
                 result = await session.run(query, params or {})
                 records = await result.values()
                 return records
         except Exception as e:
             logging.error(f"Error executing Neo4j query: {e}")
             raise
+
+    async def run_health_check(self):
+        """
+        Run a simple health check query on Neo4j.
+        
+        This method is specifically designed for health checks.
+        
+        Returns:
+            bool: True if the health check passes, False otherwise
+        """
+        try:
+            if not self._driver:
+                await self.connect()
+            
+            async with self._driver.session(database=self._database) as session:
+                result = await session.run("RETURN 1 AS num")
+                record = await result.single()
+                return record and record["num"] == 1
+        except Exception as e:
+            logging.error(f"Neo4j health check failed: {e}")
+            return False
 
 # Initialize Neo4j connection
 neo4j_connection = Neo4jConnection()

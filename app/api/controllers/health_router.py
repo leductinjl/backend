@@ -30,8 +30,8 @@ logger = logging.getLogger("api")
 @router.get("/", summary="Health Check")
 async def health_check(
     db: AsyncSession = Depends(get_db),
-    neo4j_driver: AsyncDriver = Depends(get_neo4j),
-    redis_client: redis.Redis = Depends(get_redis)
+    neo4j_driver = Depends(get_neo4j),
+    redis_client = Depends(get_redis)
 ):
     """
     Check the health of the application and its connections.
@@ -69,7 +69,7 @@ async def postgres_health(db: AsyncSession = Depends(get_db)):
     }
 
 @router.get("/neo4j", summary="Neo4j Health Check")
-async def neo4j_health(neo4j_driver: AsyncDriver = Depends(get_neo4j)):
+async def neo4j_health(neo4j_driver = Depends(get_neo4j)):
     """
     Check only the Neo4j database connection.
     
@@ -91,7 +91,7 @@ async def neo4j_health(neo4j_driver: AsyncDriver = Depends(get_neo4j)):
     }
 
 @router.get("/redis", summary="Redis Health Check")
-async def redis_health(redis_client: redis.Redis = Depends(get_redis)):
+async def redis_health(redis_client = Depends(get_redis)):
     """
     Check only the Redis cache connection.
     
