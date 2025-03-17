@@ -16,14 +16,13 @@ class Major(Base):
     Model for fields of study or academic majors.
     
     Represents areas of specialization that students can pursue
-    at various education levels (Bachelor, Master, PhD).
+    at various education levels.
     """
     __tablename__ = "major"
     
-    major_id = Column(String(50), primary_key=True)
+    major_id = Column(String(50), primary_key=True, index=True)
     major_name = Column(String(150), nullable=False)
     ministry_code = Column(String(20))  # Ministry's major code (if any)
-    education_level = Column(String(50))  # Bachelor, Master, PhD
     description = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -40,4 +39,4 @@ class Major(Base):
         return id_value
     
     def __repr__(self):
-        return f"<Major(major_id='{self.major_id}', major_name='{self.major_name}', education_level='{self.education_level}')>" 
+        return f"<Major(major_id='{self.major_id}', major_name='{self.major_name}')>" 

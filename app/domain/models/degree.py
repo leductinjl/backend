@@ -5,7 +5,7 @@ This module defines the Degree model for higher education qualifications
 achieved by candidates, such as Bachelor's, Master's, or PhD degrees.
 """
 
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime
+from sqlalchemy import Column, String, Text, ForeignKey, DateTime, Date
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship, validates
 from app.infrastructure.database.connection import Base
@@ -20,11 +20,10 @@ class Degree(Base):
     """
     __tablename__ = "degree"
     
-    degree_id = Column(String(50), primary_key=True)
+    degree_id = Column(String(50), primary_key=True, index=True)
     major_id = Column(String(50), ForeignKey("major.major_id"), nullable=False)
-    education_level = Column(String(50), nullable=False)  # Bachelor, Master, PhD
-    start_year = Column(Integer)
-    end_year = Column(Integer)
+    start_year = Column(Date)
+    end_year = Column(Date)
     academic_performance = Column(String(20))  # Good, Excellent
     degree_image_url = Column(Text)
     additional_info = Column(Text)
@@ -42,4 +41,4 @@ class Degree(Base):
         return id_value
     
     def __repr__(self):
-        return f"<Degree(degree_id='{self.degree_id}', candidate_id='{self.candidate_id}', education_level='{self.education_level}')>" 
+        return f"<Degree(degree_id='{self.degree_id}', major_id='{self.major_id}')>" 

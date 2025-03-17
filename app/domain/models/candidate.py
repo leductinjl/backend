@@ -26,6 +26,7 @@ class Candidate(Base):
     personal_info = relationship("PersonalInfo", back_populates="candidate", uselist=False)
     education_histories = relationship("EducationHistory", back_populates="candidate")
     candidate_exams = relationship("CandidateExam", back_populates="candidate")
+    credentials = relationship("CandidateCredential", back_populates="candidate")
     
     @validates('candidate_id')
     def validate_id(self, key, id_value):

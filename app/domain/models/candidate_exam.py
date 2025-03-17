@@ -6,10 +6,12 @@ between candidates and exams they participate in.
 """
 
 from datetime import datetime
+import uuid
 from sqlalchemy import Column, Integer, String, Date, ForeignKey, DateTime
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 from app.infrastructure.database.connection import Base
+from app.services.id_service import generate_model_id
 
 class CandidateExam(Base):
     """
@@ -20,7 +22,7 @@ class CandidateExam(Base):
     """
     __tablename__ = "candidate_exam"
     
-    candidate_exam_id = Column(String(50), primary_key=True)
+    candidate_exam_id = Column(String(50), primary_key=True, index=True)
     candidate_id = Column(String(20), ForeignKey("candidate.candidate_id"), nullable=False)
     exam_id = Column(String(50), ForeignKey("exam.exam_id"), nullable=False)
     registration_number = Column(String(20))
@@ -42,9 +44,15 @@ class CandidateExam(Base):
     def __init__(self, **kwargs):
         """Initialize a new CandidateExam instance with an auto-generated ID if not provided."""
         if 'candidate_exam_id' not in kwargs:
-            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-            kwargs['candidate_exam_id'] = f"CNDEXM_{timestamp}"
+            kwargs['candidate_exam_id'] = generate_model_id("CandidateExam")
         super(CandidateExam, self).__init__(**kwargs)
+    
+    @validates('candidate_exam_id')
+    def validate_id(self, key, id_value):
+        """Validate and generate ID if not provided."""
+        if not id_value:
+            return generate_model_id("CandidateExam")
+        return id_value
     
     def __repr__(self):
         return f"<CandidateExam(candidate_exam_id='{self.candidate_exam_id}', candidate_id='{self.candidate_id}', exam_id='{self.exam_id}')>" 

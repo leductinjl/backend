@@ -21,7 +21,7 @@ class Certificate(Base):
     """
     __tablename__ = "certificate"
     
-    certificate_id = Column(String(50), primary_key=True)
+    certificate_id = Column(String(50), primary_key=True, index=True)
     candidate_exam_id = Column(String(50), ForeignKey("candidate_exam.candidate_exam_id"), nullable=False)
     certificate_number = Column(String(50))
     issue_date = Column(Date)

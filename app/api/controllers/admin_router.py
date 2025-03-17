@@ -26,7 +26,11 @@ from app.api.dto.candidate import (
 from app.api.controllers.admin_auth import router as auth_router
 
 # Create main admin router
-router = APIRouter()
+router = APIRouter(
+    prefix="/admin",
+    tags=["Admin"],
+    responses={404: {"description": "Not found"}}
+)
 
 # Include the auth router
 router.include_router(auth_router, tags=["Admin Authentication"])

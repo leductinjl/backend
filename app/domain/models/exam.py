@@ -4,7 +4,7 @@ Exam model module.
 This module defines the Exam model for examinations conducted at various levels.
 """
 
-from sqlalchemy import Column, Integer, String, Text, Date, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Text, Date, ForeignKey, DateTime, JSON, Boolean
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship, validates
 from app.infrastructure.database.connection import Base
@@ -19,15 +19,16 @@ class Exam(Base):
     """
     __tablename__ = "exam"
     
-    exam_id = Column(String(50), primary_key=True)
+    exam_id = Column(String(50), primary_key=True, index=True)
     exam_name = Column(String(200), nullable=False)
     type_id = Column(String(60), ForeignKey("exam_type.type_id"), nullable=False)
     start_date = Column(Date)
     end_date = Column(Date)
     scope = Column(String(50))  # School, Provincial, National, International
-    education_level = Column(String(50))  # Secondary, High School, University
     organizing_unit_id = Column(String(50), ForeignKey("management_unit.unit_id"))
     additional_info = Column(Text)
+    exam_metadata = Column(JSON)
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

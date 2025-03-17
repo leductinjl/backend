@@ -9,7 +9,7 @@ from app.services.id_service import generate_model_id
 
 class CandidateRepository:
     """
-    Repository để thao tác với bảng Candidate trong PostgreSQL
+    Repository for interacting with the Candidate table in PostgreSQL
     """
     
     def __init__(self, db_session: AsyncSession):
@@ -17,7 +17,7 @@ class CandidateRepository:
         self.logger = logging.getLogger(__name__)
     
     async def get_all(self, skip: int = 0, limit: int = 100) -> List[Candidate]:
-        """Lấy danh sách thí sinh với phân trang"""
+        """Get list of candidates with pagination"""
         try:
             query = select(Candidate).offset(skip).limit(limit)
             result = await self.db_session.execute(query)
@@ -27,7 +27,7 @@ class CandidateRepository:
             raise
     
     async def get_by_id(self, candidate_id: str) -> Optional[Candidate]:
-        """Lấy thông tin thí sinh theo ID"""
+        """Get candidate information by ID"""
         try:
             query = select(Candidate).where(Candidate.candidate_id == candidate_id)
             result = await self.db_session.execute(query)
@@ -37,7 +37,7 @@ class CandidateRepository:
             raise
     
     async def get_by_id_with_personal_info(self, candidate_id: str) -> Optional[Candidate]:
-        """Lấy thông tin thí sinh kèm thông tin cá nhân"""
+        """Get candidate information with personal information"""
         try:
             query = select(Candidate).options(
                 joinedload(Candidate.personal_info)
@@ -49,37 +49,142 @@ class CandidateRepository:
             raise
     
     async def create(self, candidate_data: Dict[str, Any]) -> Candidate:
-        """Tạo thí sinh mới"""
+        """Create a new candidate"""
         try:
+            # Process personal information if provided
+            personal_info_data = None
+            if "personal_info" in candidate_data:
+                personal_info_data = candidate_data.pop("personal_info")
+            
+            # Ensure candidate_id is set
+            if 'candidate_id' not in candidate_data or not candidate_data['candidate_id']:
+                candidate_data['candidate_id'] = generate_model_id("Candidate")
+                self.logger.info(f"Generated new candidate ID: {candidate_data['candidate_id']}")
+            
+            # Create candidate
             candidate = Candidate(**candidate_data)
             self.db_session.add(candidate)
+            
+            # Create personal_info if provided
+            if personal_info_data and isinstance(personal_info_data, dict):
+                personal_info = PersonalInfo(
+                    candidate_id=candidate.candidate_id,
+                    **personal_info_data
+                )
+                self.db_session.add(personal_info)
+            
             await self.db_session.commit()
             await self.db_session.refresh(candidate)
-            return candidate
+            
+            # Retrieve candidate with personal_info
+            return await self.get_by_id_with_personal_info(candidate.candidate_id)
         except Exception as e:
             await self.db_session.rollback()
             self.logger.error(f"Error creating candidate: {e}")
             raise
     
     async def update(self, candidate_id: str, candidate_data: Dict[str, Any]) -> Optional[Candidate]:
-        """Cập nhật thông tin thí sinh"""
+        """Update candidate information"""
         try:
-            query = update(Candidate).where(Candidate.candidate_id == candidate_id).values(**candidate_data)
-            await self.db_session.execute(query)
+            # Process personal information if provided
+            personal_info_data = None
+            if "personal_info" in candidate_data:
+                personal_info_data = candidate_data.pop("personal_info")
+            
+            # Update candidate if data is provided
+            if candidate_data:
+                query = update(Candidate).where(Candidate.candidate_id == candidate_id).values(**candidate_data)
+                await self.db_session.execute(query)
+            
+            # Update personal_info if provided
+            if personal_info_data and isinstance(personal_info_data, dict):
+                # Check if personal_info already exists
+                personal_info_query = select(PersonalInfo).where(PersonalInfo.candidate_id == candidate_id)
+                personal_info_result = await self.db_session.execute(personal_info_query)
+                personal_info = personal_info_result.scalars().first()
+                
+                if personal_info:
+                    # Update existing personal_info
+                    personal_info_update = update(PersonalInfo).where(
+                        PersonalInfo.candidate_id == candidate_id
+                    ).values(**personal_info_data)
+                    await self.db_session.execute(personal_info_update)
+                else:
+                    # Create new personal_info
+                    new_personal_info = PersonalInfo(
+                        candidate_id=candidate_id,
+                        **personal_info_data
+                    )
+                    self.db_session.add(new_personal_info)
+            
             await self.db_session.commit()
             
             # Fetch updated candidate
-            return await self.get_by_id(candidate_id)
+            return await self.get_by_id_with_personal_info(candidate_id)
         except Exception as e:
             await self.db_session.rollback()
             self.logger.error(f"Error updating candidate {candidate_id}: {e}")
             raise
+            
+    async def update_personal_info(self, candidate_id: str, personal_info_data: Dict[str, Any]) -> Optional[Candidate]:
+        """
+        Update only the personal information of a candidate
+        
+        Args:
+            candidate_id: ID of the candidate whose personal info to update
+            personal_info_data: Dictionary containing updated personal info data
+            
+        Returns:
+            Updated candidate with personal info or None if candidate not found
+        """
+        try:
+            # First, check if candidate exists
+            candidate = await self.get_by_id(candidate_id)
+            if not candidate:
+                return None
+                
+            # Check if personal_info already exists
+            personal_info_query = select(PersonalInfo).where(PersonalInfo.candidate_id == candidate_id)
+            personal_info_result = await self.db_session.execute(personal_info_query)
+            personal_info = personal_info_result.scalars().first()
+            
+            if personal_info:
+                # Update existing personal_info
+                # Remove None values to avoid overwriting with NULL
+                update_data = {k: v for k, v in personal_info_data.items() if v is not None}
+                if update_data:
+                    personal_info_update = update(PersonalInfo).where(
+                        PersonalInfo.candidate_id == candidate_id
+                    ).values(**update_data)
+                    await self.db_session.execute(personal_info_update)
+            else:
+                # Create new personal_info if it doesn't exist
+                new_personal_info = PersonalInfo(
+                    candidate_id=candidate_id,
+                    **personal_info_data
+                )
+                self.db_session.add(new_personal_info)
+            
+            await self.db_session.commit()
+            
+            # Fetch updated candidate with personal info
+            return await self.get_by_id_with_personal_info(candidate_id)
+        except Exception as e:
+            await self.db_session.rollback()
+            self.logger.error(f"Error updating personal info for candidate {candidate_id}: {e}")
+            raise
     
     async def delete(self, candidate_id: str) -> bool:
-        """Xóa thí sinh"""
+        """Delete a candidate"""
         try:
+            # Delete personal_info first (if exists)
+            personal_info_query = delete(PersonalInfo).where(PersonalInfo.candidate_id == candidate_id)
+            await self.db_session.execute(personal_info_query)
+            
+            # Delete candidate after
             query = delete(Candidate).where(Candidate.candidate_id == candidate_id)
             result = await self.db_session.execute(query)
+            
             await self.db_session.commit()
             return result.rowcount > 0
         except Exception as e:
@@ -88,7 +193,7 @@ class CandidateRepository:
             raise
     
     async def search(self, search_term: str, skip: int = 0, limit: int = 100) -> List[Candidate]:
-        """Tìm kiếm thí sinh theo tên"""
+        """Search candidates by name"""
         try:
             query = select(Candidate).where(
                 Candidate.full_name.ilike(f"%{search_term}%")
@@ -97,165 +202,4 @@ class CandidateRepository:
             return list(result.scalars().all())
         except Exception as e:
             self.logger.error(f"Error searching candidates with term '{search_term}': {e}")
-            raise
-
-async def get_candidates(db: AsyncSession, skip: int = 0, limit: int = 100):
-    """
-    Get a list of candidates with pagination.
-    
-    Args:
-        db: Database session
-        skip: Number of records to skip
-        limit: Maximum number of records to return
-        
-    Returns:
-        list: List of Candidate objects
-    """
-    result = await db.execute(
-        select(Candidate).offset(skip).limit(limit)
-    )
-    return result.scalars().all()
-
-async def get_candidate_by_id(db: AsyncSession, candidate_id: str):
-    """
-    Get a candidate by ID.
-    
-    Args:
-        db: Database session
-        candidate_id: Candidate ID to find
-        
-    Returns:
-        Candidate: The found candidate or None
-    """
-    result = await db.execute(
-        select(Candidate).where(Candidate.candidate_id == candidate_id)
-    )
-    return result.scalars().first()
-
-async def create_candidate(db: AsyncSession, full_name: str, candidate_id: str = None):
-    """
-    Create a new candidate.
-    
-    Args:
-        db: Database session
-        full_name: Full name of the candidate
-        candidate_id: Optional ID for the candidate. If not provided, one will be generated.
-        
-    Returns:
-        Candidate: The created candidate
-    """
-    # Generate ID if not provided
-    if not candidate_id:
-        candidate_id = generate_model_id("Candidate")
-    
-    # Create the candidate
-    db_candidate = Candidate(
-        candidate_id=candidate_id,
-        full_name=full_name
-    )
-    
-    db.add(db_candidate)
-    await db.commit()
-    await db.refresh(db_candidate)
-    
-    logger.info(f"Created candidate with ID: {candidate_id}")
-    return db_candidate
-
-async def update_candidate(db: AsyncSession, candidate_id: str, update_data: dict):
-    """
-    Update a candidate's information.
-    
-    Args:
-        db: Database session
-        candidate_id: Candidate ID to update
-        update_data: Dictionary of fields to update
-        
-    Returns:
-        Candidate: The updated candidate or None if not found
-    """
-    # First check if candidate exists
-    db_candidate = await get_candidate_by_id(db, candidate_id)
-    if not db_candidate:
-        return None
-    
-    # Update the candidate
-    await db.execute(
-        update(Candidate)
-        .where(Candidate.candidate_id == candidate_id)
-        .values(**update_data)
-    )
-    
-    await db.commit()
-    await db.refresh(db_candidate)
-    
-    logger.info(f"Updated candidate with ID: {candidate_id}")
-    return db_candidate
-
-async def delete_candidate(db: AsyncSession, candidate_id: str):
-    """
-    Delete a candidate.
-    
-    Args:
-        db: Database session
-        candidate_id: Candidate ID to delete
-        
-    Returns:
-        bool: True if candidate was deleted, False if not found
-    """
-    # First check if candidate exists
-    db_candidate = await get_candidate_by_id(db, candidate_id)
-    if not db_candidate:
-        return False
-    
-    # Delete the candidate
-    await db.execute(
-        delete(Candidate)
-        .where(Candidate.candidate_id == candidate_id)
-    )
-    
-    await db.commit()
-    
-    logger.info(f"Deleted candidate with ID: {candidate_id}")
-    return True
-
-async def create_candidate_with_personal_info(
-    db: AsyncSession, 
-    full_name: str, 
-    personal_info: dict
-):
-    """
-    Create a new candidate with personal information.
-    
-    Args:
-        db: Database session
-        full_name: Full name of the candidate
-        personal_info: Dictionary of personal information fields
-        
-    Returns:
-        Candidate: The created candidate with personal info
-    """
-    # Generate ID for candidate
-    candidate_id = generate_model_id("Candidate")
-    
-    # Create the candidate
-    db_candidate = Candidate(
-        candidate_id=candidate_id,
-        full_name=full_name
-    )
-    
-    db.add(db_candidate)
-    
-    # Create personal info
-    db_personal_info = PersonalInfo(
-        candidate_id=candidate_id,
-        **personal_info
-    )
-    
-    db.add(db_personal_info)
-    
-    # Commit both entities in a single transaction
-    await db.commit()
-    await db.refresh(db_candidate)
-    
-    logger.info(f"Created candidate with ID: {candidate_id} and personal info")
-    return db_candidate 
+            raise 

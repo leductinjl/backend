@@ -16,14 +16,13 @@ class School(Base):
     Model for educational institutions.
     
     Represents schools, universities, or other educational institutions
-    at various education levels (Primary, Secondary, High School, University).
+    that can serve multiple education levels.
     """
     __tablename__ = "school"
     
-    school_id = Column(String(50), primary_key=True)
+    school_id = Column(String(50), primary_key=True, index=True)
     school_name = Column(String(150), nullable=False)
     address = Column(Text)
-    education_level = Column(String(50))  # Primary, Secondary, High School, University, After University
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
@@ -39,4 +38,4 @@ class School(Base):
         return id_value
     
     def __repr__(self):
-        return f"<School(school_id='{self.school_id}', school_name='{self.school_name}', education_level='{self.education_level}')>" 
+        return f"<School(school_id='{self.school_id}', school_name='{self.school_name}')>" 

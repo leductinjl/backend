@@ -4,7 +4,7 @@ Exam Type model module.
 This module defines the ExamType model for categorizing different types of exams.
 """
 
-from sqlalchemy import Column, Integer, String, Text, DateTime
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship, validates
 from app.infrastructure.database.connection import Base
@@ -18,9 +18,10 @@ class ExamType(Base):
     """
     __tablename__ = "exam_type"
     
-    type_id = Column(String(60), primary_key=True)
+    type_id = Column(String(60), primary_key=True, index=True)
     type_name = Column(String(100), nullable=False)  # Semester, Certificate, Competition
     description = Column(Text)
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

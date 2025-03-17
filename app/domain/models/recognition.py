@@ -21,7 +21,7 @@ class Recognition(Base):
     """
     __tablename__ = "recognition"
     
-    recognition_id = Column(String(60), primary_key=True)
+    recognition_id = Column(String(60), primary_key=True, index=True)
     title = Column(String(200), nullable=False)
     issuing_organization = Column(String(100), nullable=False)
     issue_date = Column(Date)

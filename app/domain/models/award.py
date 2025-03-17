@@ -20,7 +20,7 @@ class Award(Base):
     """
     __tablename__ = "award"
     
-    award_id = Column(String(60), primary_key=True)
+    award_id = Column(String(60), primary_key=True, index=True)
     candidate_exam_id = Column(String(50), ForeignKey("candidate_exam.candidate_exam_id"), nullable=False)
     award_type = Column(String(50))  # First, Second, Third, Gold Medal, Silver Medal
     achievement = Column(String(100))  # Specific achievement if any

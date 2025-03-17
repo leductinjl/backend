@@ -8,12 +8,15 @@ from app.domain.models.school_major import SchoolMajor
 from app.domain.models.subject import Subject
 from app.domain.models.degree import Degree
 from app.domain.models.education_history import EducationHistory
+from app.domain.models.education_level import EducationLevel
+from app.domain.models.candidate_credential import CandidateCredential
 from app.domain.models.exam_type import ExamType
 from app.domain.models.exam_location import ExamLocation
 from app.domain.models.exam import Exam
 from app.domain.models.exam_location_mapping import ExamLocationMapping
 from app.domain.models.exam_room import ExamRoom
 from app.domain.models.exam_subject import ExamSubject
+from app.domain.models.exam_schedule import ExamSchedule
 from app.domain.models.candidate_exam import CandidateExam
 from app.domain.models.exam_score import ExamScore
 from app.domain.models.exam_score_history import ExamScoreHistory

@@ -7,8 +7,9 @@ to candidates' exam scores over time.
 
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, ForeignKey, DECIMAL, TIMESTAMP, func, DateTime
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 from app.infrastructure.database.connection import Base
+from app.services.id_service import generate_model_id
 
 class ExamScoreHistory(Base):
     """
@@ -20,7 +21,7 @@ class ExamScoreHistory(Base):
     """
     __tablename__ = "exam_score_history"
     
-    history_id = Column(String(50), primary_key=True)
+    history_id = Column(String(50), primary_key=True, index=True)
     score_id = Column(String(60), ForeignKey("exam_score.exam_score_id"), nullable=False)
     previous_score = Column(DECIMAL(5, 2))
     new_score = Column(DECIMAL(5, 2))
@@ -36,9 +37,15 @@ class ExamScoreHistory(Base):
     def __init__(self, **kwargs):
         """Initialize a new ExamScoreHistory instance with an auto-generated ID if not provided."""
         if 'history_id' not in kwargs:
-            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-            kwargs['history_id'] = f"SCRHIS_{timestamp}"
+            kwargs['history_id'] = generate_model_id("ExamScoreHistory")
         super(ExamScoreHistory, self).__init__(**kwargs)
+    
+    @validates('history_id')
+    def validate_id(self, key, id_value):
+        """Validate and generate ID if not provided."""
+        if not id_value:
+            return generate_model_id("ExamScoreHistory")
+        return id_value
     
     def __repr__(self):
         return f"<ExamScoreHistory(history_id='{self.history_id}', score_id='{self.score_id}', previous_score={self.previous_score}, new_score={self.new_score})>" 

@@ -5,7 +5,7 @@ This module defines the ExamSubject model which represents the many-to-many
 relationship between exams and subjects tested in those exams.
 """
 
-from sqlalchemy import Column, Integer, String, Text, Date, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Text, Date, ForeignKey, DateTime, JSON, Float, Boolean
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship, validates
 from app.infrastructure.database.connection import Base
@@ -20,12 +20,17 @@ class ExamSubject(Base):
     """
     __tablename__ = "exam_subject"
     
-    exam_subject_id = Column(String(60), primary_key=True)
+    exam_subject_id = Column(String(60), primary_key=True, index=True)
     exam_id = Column(String(60), ForeignKey("exam.exam_id"), nullable=False)
     subject_id = Column(String(60), ForeignKey("subject.subject_id"), nullable=False)
+    weight = Column(Float, default=1.0)
+    passing_score = Column(Float, nullable=True)
+    max_score = Column(Float, default=100.0)
+    is_required = Column(Boolean, default=True)
     exam_date = Column(Date)
     duration_minutes = Column(Integer)
     additional_info = Column(Text)
+    subject_metadata = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
@@ -33,6 +38,7 @@ class ExamSubject(Base):
     exam = relationship("Exam", back_populates="exam_subjects")
     subject = relationship("Subject", back_populates="exam_subjects")
     exam_scores = relationship("ExamScore", back_populates="exam_subject")
+    exam_schedules = relationship("ExamSchedule", back_populates="exam_subject")
     
     @validates('exam_subject_id')
     def validate_id(self, key, id_value):

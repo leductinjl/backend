@@ -21,7 +21,7 @@ class ScoreReview(Base):
     """
     __tablename__ = "score_review"
     
-    score_review_id = Column(String(60), primary_key=True)
+    score_review_id = Column(String(60), primary_key=True, index=True)
     score_id = Column(String(60), ForeignKey("exam_score.exam_score_id"), nullable=False)
     request_date = Column(Date, nullable=False)
     review_status = Column(String(50), nullable=False)  # Pending, Approved, Rejected

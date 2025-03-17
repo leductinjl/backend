@@ -20,7 +20,7 @@ class Achievement(Base):
     """
     __tablename__ = "achievement"
     
-    achievement_id = Column(String(60), primary_key=True)
+    achievement_id = Column(String(60), primary_key=True, index=True)
     candidate_exam_id = Column(String(50), ForeignKey("candidate_exam.candidate_exam_id"), nullable=False)
     achievement_name = Column(String(200), nullable=False)
     achievement_type = Column(String(50))  # Research, Community Service, Sports, Arts

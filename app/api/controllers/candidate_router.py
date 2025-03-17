@@ -1,66 +1,65 @@
 """
 Candidate router module.
 
-This module provides public endpoints for accessing candidate information.
-All endpoints in this router are public and do not require authentication,
-allowing candidates to freely access their information.
+This module provides endpoints for accessing and managing candidate information.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Path, Body, Response
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database.connection import get_db
-from app.infrastructure.ontology.neo4j_connection import get_neo4j
 from app.api.dto.candidate import (
     CandidateResponse, 
     CandidateDetailResponse,
-    EducationHistoryResponse,
-    ExamHistoryResponse
+    CandidateCreate,
+    CandidateUpdate,
+    PersonalInfoUpdate
 )
+from app.api.dto.education_history import EducationHistoryResponse
+# from app.api.dto.candidate_exam import ExamHistoryResponse, SubjectScore
 from app.repositories.candidate_repository import CandidateRepository
-from app.graph_repositories.candidate_graph_repository import CandidateGraphRepository
 from app.services.candidate_service import CandidateService
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/candidates",
+    tags=["Candidates"],
+    responses={404: {"description": "Not found"}}
+)
 
 async def get_candidate_service(
-    db: AsyncSession = Depends(get_db),
-    neo4j = Depends(get_neo4j)
+    db: AsyncSession = Depends(get_db)
 ):
     """
-    Dependency injection cho CandidateService
+    Dependency injection for CandidateService
     
     Args:
         db: Database session
-        neo4j: Neo4j connection
         
     Returns:
-        CandidateService: Service instance để xử lý logic nghiệp vụ liên quan đến thí sinh
+        CandidateService: Service instance to handle business logic related to candidates
     """
     candidate_repo = CandidateRepository(db)
-    # Tạm thời sử dụng instance rỗng thay vì kết nối thực với Neo4j
-    candidate_graph_repo = CandidateGraphRepository(neo4j_connection=neo4j)
-    return CandidateService(candidate_repo, candidate_graph_repo)
+    return CandidateService(candidate_repo)
 
 @router.get("/", response_model=List[CandidateResponse], summary="List Candidates")
 async def get_candidates(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    skip: int = Query(0, ge=0, description="Number of records to skip (for pagination)"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
     service: CandidateService = Depends(get_candidate_service)
 ):
     """
-    Lấy danh sách thí sinh.
+    Get list of candidates.
     
-    Endpoint này trả về danh sách tất cả thí sinh, có hỗ trợ phân trang.
+    This endpoint returns a list of all candidates, with pagination support.
     
     Args:
-        skip: Số bản ghi bỏ qua (dùng cho phân trang)
-        limit: Số bản ghi tối đa trả về
+        skip: Number of records to skip (for pagination)
+        limit: Maximum number of records to return
         service: CandidateService (injected)
         
     Returns:
-        List[CandidateResponse]: Danh sách thí sinh
+        List[CandidateResponse]: List of candidates
     """
     try:
         candidates = await service.get_all_candidates(skip, limit)
@@ -68,35 +67,35 @@ async def get_candidates(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Đã xảy ra lỗi khi lấy danh sách thí sinh: {str(e)}"
+            detail=f"An error occurred while retrieving candidate list: {str(e)}"
         )
 
 @router.get("/{candidate_id}", response_model=CandidateDetailResponse, summary="Get Candidate Details")
 async def get_candidate(
-    candidate_id: str,
+    candidate_id: str = Path(..., description="ID of the candidate"),
     service: CandidateService = Depends(get_candidate_service)
 ):
     """
-    Lấy thông tin chi tiết của thí sinh theo ID.
+    Get detailed information about a candidate by ID.
     
-    Endpoint này trả về thông tin chi tiết của một thí sinh dựa trên ID.
+    This endpoint returns detailed information about a candidate based on ID.
     
     Args:
-        candidate_id: ID của thí sinh
+        candidate_id: ID of the candidate
         service: CandidateService (injected)
         
     Returns:
-        CandidateDetailResponse: Thông tin chi tiết của thí sinh
+        CandidateDetailResponse: Detailed information about the candidate
         
     Raises:
-        HTTPException: Nếu không tìm thấy thí sinh hoặc có lỗi xảy ra
+        HTTPException: If candidate not found or error occurs
     """
     try:
         candidate = await service.get_candidate_by_id(candidate_id)
         if not candidate:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Không tìm thấy thí sinh với ID {candidate_id}"
+                detail=f"Candidate with ID {candidate_id} not found"
             )
         return candidate
     except HTTPException:
@@ -104,29 +103,29 @@ async def get_candidate(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Đã xảy ra lỗi khi lấy thông tin thí sinh: {str(e)}"
+            detail=f"An error occurred while retrieving candidate information: {str(e)}"
         )
 
 @router.get("/search/", response_model=List[CandidateResponse], summary="Search Candidates")
 async def search_candidates(
-    q: str = Query(..., min_length=1),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    q: str = Query(..., min_length=1, description="Search keyword"),
+    skip: int = Query(0, ge=0, description="Number of records to skip (for pagination)"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
     service: CandidateService = Depends(get_candidate_service)
 ):
     """
-    Tìm kiếm thí sinh theo từ khóa.
+    Search candidates by keyword.
     
-    Endpoint này tìm kiếm thí sinh dựa trên tên hoặc thông tin cá nhân.
+    This endpoint searches for candidates based on name or personal information.
     
     Args:
-        q: Từ khóa tìm kiếm
-        skip: Số bản ghi bỏ qua (dùng cho phân trang)
-        limit: Số bản ghi tối đa trả về
+        q: Search keyword
+        skip: Number of records to skip (for pagination)
+        limit: Maximum number of records to return
         service: CandidateService (injected)
         
     Returns:
-        List[CandidateResponse]: Danh sách thí sinh phù hợp với từ khóa
+        List[CandidateResponse]: List of candidates matching the keyword
     """
     try:
         candidates = await service.search_candidates(q, skip, limit)
@@ -134,57 +133,197 @@ async def search_candidates(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Đã xảy ra lỗi khi tìm kiếm thí sinh: {str(e)}"
+            detail=f"An error occurred while searching for candidates: {str(e)}"
         )
 
-@router.get("/{candidate_id}/education", response_model=List[EducationHistoryResponse], summary="Get Education History")
-async def get_education_history(
-    candidate_id: str,
+@router.post("/", response_model=CandidateDetailResponse, status_code=status.HTTP_201_CREATED, summary="Create Candidate")
+async def create_candidate(
+    candidate_data: CandidateCreate = Body(..., description="Candidate information to create"),
     service: CandidateService = Depends(get_candidate_service)
 ):
     """
-    Lấy lịch sử học tập của thí sinh.
+    Create a new candidate.
     
-    Endpoint này trả về lịch sử học tập của thí sinh từ đồ thị tri thức Neo4j.
+    This endpoint creates a new candidate with the provided personal information.
     
     Args:
-        candidate_id: ID của thí sinh
+        candidate_data: Candidate information to create
         service: CandidateService (injected)
         
     Returns:
-        List[EducationHistoryResponse]: Lịch sử học tập của thí sinh
+        CandidateDetailResponse: Detailed information of the created candidate
+        
+    Raises:
+        HTTPException: If an error occurs during candidate creation
     """
     try:
-        history = await service.get_candidate_education_history(candidate_id)
-        return history
+        candidate = await service.create_candidate(candidate_data.model_dump())
+        return candidate
     except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Đã xảy ra lỗi khi lấy lịch sử học tập: {str(e)}"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot create new candidate: {str(e)}"
         )
 
-@router.get("/{candidate_id}/exams", response_model=List[ExamHistoryResponse], summary="Get Exam History")
-async def get_exam_history(
-    candidate_id: str,
+@router.put("/{candidate_id}", response_model=CandidateDetailResponse, summary="Update Candidate")
+async def update_candidate(
+    candidate_id: str = Path(..., description="ID of the candidate to update"),
+    candidate_data: CandidateUpdate = Body(..., description="Candidate information to update"),
     service: CandidateService = Depends(get_candidate_service)
 ):
     """
-    Lấy lịch sử thi của thí sinh.
+    Update candidate information.
     
-    Endpoint này trả về lịch sử thi cử của thí sinh từ đồ thị tri thức Neo4j.
+    This endpoint updates information of an existing candidate.
     
     Args:
-        candidate_id: ID của thí sinh
+        candidate_id: ID of the candidate to update
+        candidate_data: Candidate information to update
         service: CandidateService (injected)
         
     Returns:
-        List[ExamHistoryResponse]: Lịch sử thi của thí sinh
+        CandidateDetailResponse: Detailed information of the updated candidate
+        
+    Raises:
+        HTTPException: If candidate not found or an error occurs during update
     """
     try:
-        history = await service.get_candidate_exam_history(candidate_id)
-        return history
+        candidate = await service.update_candidate(candidate_id, candidate_data.model_dump(exclude_unset=True))
+        
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Candidate with ID {candidate_id} not found"
+            )
+        
+        return candidate
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Đã xảy ra lỗi khi lấy lịch sử thi: {str(e)}"
+            detail=f"An error occurred while updating candidate: {str(e)}"
+        )
+
+@router.put("/{candidate_id}/personal-info", response_model=CandidateDetailResponse, summary="Update Candidate Personal Info")
+async def update_personal_info(
+    candidate_id: str = Path(..., description="ID of the candidate whose personal info to update"),
+    personal_info_data: PersonalInfoUpdate = Body(..., description="Personal information to update"),
+    service: CandidateService = Depends(get_candidate_service)
+):
+    """
+    Update only the personal information of a candidate.
+    
+    This endpoint updates only the personal information of an existing candidate,
+    leaving the candidate's basic data unchanged.
+    
+    Args:
+        candidate_id: ID of the candidate whose personal info to update
+        personal_info_data: Personal information to update
+        service: CandidateService (injected)
+        
+    Returns:
+        CandidateDetailResponse: Detailed information of the candidate after update
+        
+    Raises:
+        HTTPException: If candidate not found or an error occurs during update
+    """
+    try:
+        candidate = await service.update_candidate_personal_info(
+            candidate_id, 
+            personal_info_data.model_dump(exclude_unset=True)
+        )
+        
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Candidate with ID {candidate_id} not found"
+            )
+        
+        return candidate
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while updating personal information: {str(e)}"
+        )
+
+@router.patch("/{candidate_id}", response_model=CandidateDetailResponse, summary="Partially Update Candidate")
+async def patch_candidate(
+    candidate_id: str = Path(..., description="ID of the candidate to update"),
+    candidate_data: CandidateUpdate = Body(..., description="Partial candidate information to update"),
+    service: CandidateService = Depends(get_candidate_service)
+):
+    """
+    Partially update candidate information.
+    
+    This endpoint performs a partial update on candidate information, updating only 
+    the fields that are provided in the request body, while leaving other fields unchanged.
+    This is in contrast to PUT which conceptually replaces the entire resource.
+    
+    Args:
+        candidate_id: ID of the candidate to partially update
+        candidate_data: Partial candidate information to update
+        service: CandidateService (injected)
+        
+    Returns:
+        CandidateDetailResponse: Detailed information of the updated candidate
+        
+    Raises:
+        HTTPException: If candidate not found or an error occurs during update
+    """
+    try:
+        # Use the same service method as PUT but it's clear this is for partial updates
+        candidate = await service.update_candidate(candidate_id, candidate_data.model_dump(exclude_unset=True))
+        
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Candidate with ID {candidate_id} not found"
+            )
+        
+        return candidate
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while partially updating candidate: {str(e)}"
+        )
+
+@router.delete("/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete Candidate")
+async def delete_candidate(
+    candidate_id: str = Path(..., description="ID of the candidate to delete"),
+    service: CandidateService = Depends(get_candidate_service)
+):
+    """
+    Delete a candidate.
+    
+    This endpoint removes a candidate from the system.
+    
+    Args:
+        candidate_id: ID of the candidate to delete
+        service: CandidateService (injected)
+        
+    Returns:
+        No content (HTTP 204)
+        
+    Raises:
+        HTTPException: If candidate not found or error occurs
+    """
+    try:
+        deleted = await service.delete_candidate(candidate_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Candidate with ID {candidate_id} not found"
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while deleting candidate: {str(e)}"
         ) 

@@ -24,7 +24,11 @@ from app.services.health_service import (
     check_redis
 )
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/health",
+    tags=["Health"],
+    responses={404: {"description": "Not found"}}
+)
 logger = logging.getLogger("api")
 
 @router.get("/", summary="Health Check")

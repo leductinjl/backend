@@ -8,8 +8,10 @@ relationship between exams and their locations.
 from datetime import datetime
 from sqlalchemy import Column, Integer, Text, ForeignKey, UniqueConstraint, String, DateTime, Boolean
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 from app.infrastructure.database.connection import Base
+from app.services.id_service import generate_model_id
+from sqlalchemy.dialects.postgresql import JSONB
 
 class ExamLocationMapping(Base):
     """
@@ -20,11 +22,12 @@ class ExamLocationMapping(Base):
     """
     __tablename__ = "exam_location_mapping"
     
-    mapping_id = Column(String(50), primary_key=True)
+    mapping_id = Column(String(50), primary_key=True, index=True)
     location_id = Column(String(60), ForeignKey("exam_location.location_id"), nullable=False)
     exam_id = Column(String(50), ForeignKey("exam.exam_id"), nullable=False)
-    additional_info = Column(Text)
+    mapping_metadata = Column(JSONB) # Additional metadata for the mapping
     is_primary = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
@@ -38,9 +41,18 @@ class ExamLocationMapping(Base):
     def __init__(self, **kwargs):
         """Initialize a new ExamLocationMapping instance with an auto-generated ID if not provided."""
         if 'mapping_id' not in kwargs:
-            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-            kwargs['mapping_id'] = f"EXLMAP_{timestamp}"
+            kwargs['mapping_id'] = generate_model_id("ExamLocationMapping")
+        # Handle metadata rename for backwards compatibility
+        if 'metadata' in kwargs:
+            kwargs['mapping_metadata'] = kwargs.pop('metadata')
         super(ExamLocationMapping, self).__init__(**kwargs)
+    
+    @validates('mapping_id')
+    def validate_id(self, key, id_value):
+        """Validate and generate ID if not provided."""
+        if not id_value:
+            return generate_model_id("ExamLocationMapping")
+        return id_value
     
     def __repr__(self):
         return f"<ExamLocationMapping(mapping_id='{self.mapping_id}', location_id='{self.location_id}')>" 

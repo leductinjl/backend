@@ -5,11 +5,20 @@ This module defines the ExamScore model for storing scores achieved by
 candidates in specific subjects within an exam.
 """
 
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DECIMAL, DateTime
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DECIMAL, DateTime, Enum
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship, validates
+from sqlalchemy.dialects.postgresql import JSON
 from app.infrastructure.database.connection import Base
 from app.services.id_service import generate_model_id
+import enum
+
+class ScoreStatus(str, enum.Enum):
+    PENDING = "pending"
+    GRADED = "graded"
+    REVISED = "revised"
+    CANCELED = "canceled"
+    UNDER_REVIEW = "under_review"
 
 class ExamScore(Base):
     """
@@ -20,10 +29,14 @@ class ExamScore(Base):
     """
     __tablename__ = "exam_score"
     
-    exam_score_id = Column(String(60), primary_key=True)
+    exam_score_id = Column(String(60), primary_key=True, index=True)
     exam_subject_id = Column(String(60), ForeignKey("exam_subject.exam_subject_id"), nullable=False)
     score = Column(DECIMAL(5, 2))
-    additional_info = Column(Text)
+    status = Column(String(20), default=ScoreStatus.PENDING)
+    graded_by = Column(String(60), nullable=True)
+    graded_at = Column(DateTime(timezone=True), nullable=True)
+    notes = Column(Text, nullable=True)
+    score_metadata = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
