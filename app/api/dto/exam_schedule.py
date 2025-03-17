@@ -57,6 +57,30 @@ class ExamScheduleResponse(ExamScheduleBase):
     
     class Config:
         from_attributes = True
+        
+    @classmethod
+    def from_orm(cls, obj):
+        """Create an instance of ExamScheduleResponse from an ORM object with proper mapping of nested fields."""
+        # Create the response with fields directly from the model
+        response = super().from_orm(obj)
+        
+        # Map nested relationship fields if they exist
+        if hasattr(obj, 'exam_subject') and obj.exam_subject:
+            # Get exam info
+            if hasattr(obj.exam_subject, 'exam_id'):
+                response.exam_id = obj.exam_subject.exam_id
+                
+            if hasattr(obj.exam_subject, 'exam') and obj.exam_subject.exam:
+                response.exam_name = obj.exam_subject.exam.exam_name
+                
+            # Get subject info
+            if hasattr(obj.exam_subject, 'subject_id'):
+                response.subject_id = obj.exam_subject.subject_id
+                
+            if hasattr(obj.exam_subject, 'subject') and obj.exam_subject.subject:
+                response.subject_name = obj.exam_subject.subject.subject_name
+                
+        return response
 
 class ExamScheduleListResponse(BaseModel):
     """Model for paginated list of exam schedules"""

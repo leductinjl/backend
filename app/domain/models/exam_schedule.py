@@ -39,6 +39,35 @@ class ExamSchedule(Base):
     # Relationships
     exam_subject = relationship("ExamSubject", back_populates="exam_schedules")
     
+    # Properties to access nested fields
+    @property
+    def exam_id(self):
+        """Get the exam ID from the related exam subject."""
+        if self.exam_subject and hasattr(self.exam_subject, 'exam_id'):
+            return self.exam_subject.exam_id
+        return None
+    
+    @property
+    def exam_name(self):
+        """Get the exam name from the related exam subject."""
+        if self.exam_subject and hasattr(self.exam_subject, 'exam') and self.exam_subject.exam:
+            return self.exam_subject.exam.exam_name
+        return None
+    
+    @property
+    def subject_id(self):
+        """Get the subject ID from the related exam subject."""
+        if self.exam_subject and hasattr(self.exam_subject, 'subject_id'):
+            return self.exam_subject.subject_id
+        return None
+    
+    @property
+    def subject_name(self):
+        """Get the subject name from the related exam subject."""
+        if self.exam_subject and hasattr(self.exam_subject, 'subject') and self.exam_subject.subject:
+            return self.exam_subject.subject.subject_name
+        return None
+    
     @validates('exam_schedule_id')
     def validate_id(self, key, id_value):
         """Validate and generate ID if not provided."""

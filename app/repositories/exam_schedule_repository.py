@@ -330,6 +330,11 @@ class ExamScheduleRepository:
             Created ExamSchedule object
         """
         try:
+            # Generate ID if not provided
+            if 'exam_schedule_id' not in exam_schedule_data:
+                from app.services.id_service import generate_model_id
+                exam_schedule_data['exam_schedule_id'] = generate_model_id("ExamSchedule")
+            
             # Create new exam schedule
             exam_schedule = ExamSchedule(**exam_schedule_data)
             self.db.add(exam_schedule)
