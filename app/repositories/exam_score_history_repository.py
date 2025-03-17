@@ -58,17 +58,17 @@ class ExamScoreHistoryRepository:
         query = (
             select(
                 ExamScoreHistory,
-                Candidate.candidate_name,
-                Candidate.candidate_code,
+                Candidate.full_name,
+                Candidate.candidate_id,
                 Exam.exam_name,
                 Subject.subject_name
             )
-            .join(ExamScore, ExamScoreHistory.score_id == ExamScore.score_id)
-            .join(CandidateExam, ExamScore.candidate_exam_id == CandidateExam.candidate_exam_id)
-            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
+            .join(ExamScore, ExamScoreHistory.score_id == ExamScore.exam_score_id)
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
-            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
             .join(Subject, ExamSubject.subject_id == Subject.subject_id)
+            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
+            .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
+            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
             .outerjoin(User, ExamScoreHistory.changed_by == User.user_id)
         )
         
@@ -77,8 +77,8 @@ class ExamScoreHistoryRepository:
             search_term = f"%{filters['search']}%"
             query = query.filter(
                 or_(
-                    Candidate.candidate_name.ilike(search_term),
-                    Candidate.candidate_code.ilike(search_term),
+                    Candidate.full_name.ilike(search_term),
+                    Candidate.candidate_id.ilike(search_term),
                     Exam.exam_name.ilike(search_term),
                     Subject.subject_name.ilike(search_term),
                     Subject.subject_code.ilike(search_term),
@@ -144,7 +144,7 @@ class ExamScoreHistoryRepository:
         
         # Process results to include related entity names
         history_entries = []
-        for history, candidate_name, candidate_code, exam_name, subject_name in result:
+        for history, full_name, candidate_id, exam_name, subject_name in result:
             # Get changed_by name if available
             changed_by_name = None
             
@@ -164,8 +164,8 @@ class ExamScoreHistoryRepository:
                 "review_id": history.review_id,
                 "metadata": history.metadata,
                 "created_at": history.created_at,
-                "candidate_name": candidate_name,
-                "candidate_code": candidate_code,
+                "candidate_name": full_name,
+                "candidate_code": candidate_id,
                 "exam_name": exam_name,
                 "subject_name": subject_name,
                 "changed_by_name": changed_by_name
@@ -187,17 +187,17 @@ class ExamScoreHistoryRepository:
         query = (
             select(
                 ExamScoreHistory,
-                Candidate.candidate_name,
-                Candidate.candidate_code,
+                Candidate.full_name,
+                Candidate.candidate_id,
                 Exam.exam_name,
                 Subject.subject_name
             )
-            .join(ExamScore, ExamScoreHistory.score_id == ExamScore.score_id)
-            .join(CandidateExam, ExamScore.candidate_exam_id == CandidateExam.candidate_exam_id)
-            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
+            .join(ExamScore, ExamScoreHistory.score_id == ExamScore.exam_score_id)
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
-            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
             .join(Subject, ExamSubject.subject_id == Subject.subject_id)
+            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
+            .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
+            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
             .filter(ExamScoreHistory.history_id == history_id)
         )
         
@@ -207,7 +207,7 @@ class ExamScoreHistoryRepository:
         if not row:
             return None
         
-        history, candidate_name, candidate_code, exam_name, subject_name = row
+        history, full_name, candidate_id, exam_name, subject_name = row
         
         # Get changed_by name if available
         changed_by_name = None
@@ -228,8 +228,8 @@ class ExamScoreHistoryRepository:
             "review_id": history.review_id,
             "metadata": history.metadata,
             "created_at": history.created_at,
-            "candidate_name": candidate_name,
-            "candidate_code": candidate_code,
+            "candidate_name": full_name,
+            "candidate_code": candidate_id,
             "exam_name": exam_name,
             "subject_name": subject_name,
             "changed_by_name": changed_by_name
@@ -248,17 +248,17 @@ class ExamScoreHistoryRepository:
         query = (
             select(
                 ExamScoreHistory,
-                Candidate.candidate_name,
-                Candidate.candidate_code,
+                Candidate.full_name,
+                Candidate.candidate_id,
                 Exam.exam_name,
                 Subject.subject_name
             )
-            .join(ExamScore, ExamScoreHistory.score_id == ExamScore.score_id)
-            .join(CandidateExam, ExamScore.candidate_exam_id == CandidateExam.candidate_exam_id)
-            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
+            .join(ExamScore, ExamScoreHistory.score_id == ExamScore.exam_score_id)
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
-            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
             .join(Subject, ExamSubject.subject_id == Subject.subject_id)
+            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
+            .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
+            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
             .filter(ExamScoreHistory.score_id == score_id)
             .order_by(ExamScoreHistory.created_at.desc())
         )
@@ -266,7 +266,7 @@ class ExamScoreHistoryRepository:
         result = await self.db.execute(query)
         
         history_entries = []
-        for history, candidate_name, candidate_code, exam_name, subject_name in result:
+        for history, full_name, candidate_id, exam_name, subject_name in result:
             # Get changed_by name if available
             changed_by_name = None
             
@@ -286,8 +286,8 @@ class ExamScoreHistoryRepository:
                 "review_id": history.review_id,
                 "metadata": history.metadata,
                 "created_at": history.created_at,
-                "candidate_name": candidate_name,
-                "candidate_code": candidate_code,
+                "candidate_name": full_name,
+                "candidate_code": candidate_id,
                 "exam_name": exam_name,
                 "subject_name": subject_name,
                 "changed_by_name": changed_by_name
@@ -309,17 +309,17 @@ class ExamScoreHistoryRepository:
         query = (
             select(
                 ExamScoreHistory,
-                Candidate.candidate_name,
-                Candidate.candidate_code,
+                Candidate.full_name,
+                Candidate.candidate_id,
                 Exam.exam_name,
                 Subject.subject_name
             )
-            .join(ExamScore, ExamScoreHistory.score_id == ExamScore.score_id)
-            .join(CandidateExam, ExamScore.candidate_exam_id == CandidateExam.candidate_exam_id)
-            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
+            .join(ExamScore, ExamScoreHistory.score_id == ExamScore.exam_score_id)
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
-            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
             .join(Subject, ExamSubject.subject_id == Subject.subject_id)
+            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
+            .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
+            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
             .filter(ExamScoreHistory.review_id == review_id)
             .order_by(ExamScoreHistory.created_at.desc())
         )
@@ -327,7 +327,7 @@ class ExamScoreHistoryRepository:
         result = await self.db.execute(query)
         
         history_entries = []
-        for history, candidate_name, candidate_code, exam_name, subject_name in result:
+        for history, full_name, candidate_id, exam_name, subject_name in result:
             # Get changed_by name if available
             changed_by_name = None
             
@@ -347,8 +347,8 @@ class ExamScoreHistoryRepository:
                 "review_id": history.review_id,
                 "metadata": history.metadata,
                 "created_at": history.created_at,
-                "candidate_name": candidate_name,
-                "candidate_code": candidate_code,
+                "candidate_name": full_name,
+                "candidate_code": candidate_id,
                 "exam_name": exam_name,
                 "subject_name": subject_name,
                 "changed_by_name": changed_by_name
@@ -370,17 +370,17 @@ class ExamScoreHistoryRepository:
         query = (
             select(
                 ExamScoreHistory,
-                Candidate.candidate_name,
-                Candidate.candidate_code,
+                Candidate.full_name,
+                Candidate.candidate_id,
                 Exam.exam_name,
                 Subject.subject_name
             )
-            .join(ExamScore, ExamScoreHistory.score_id == ExamScore.score_id)
-            .join(CandidateExam, ExamScore.candidate_exam_id == CandidateExam.candidate_exam_id)
-            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
+            .join(ExamScore, ExamScoreHistory.score_id == ExamScore.exam_score_id)
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
-            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
             .join(Subject, ExamSubject.subject_id == Subject.subject_id)
+            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
+            .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
+            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
             .filter(CandidateExam.candidate_id == candidate_id)
             .order_by(ExamScoreHistory.created_at.desc())
         )
@@ -388,7 +388,7 @@ class ExamScoreHistoryRepository:
         result = await self.db.execute(query)
         
         history_entries = []
-        for history, candidate_name, candidate_code, exam_name, subject_name in result:
+        for history, full_name, candidate_id, exam_name, subject_name in result:
             # Get changed_by name if available
             changed_by_name = None
             
@@ -408,8 +408,8 @@ class ExamScoreHistoryRepository:
                 "review_id": history.review_id,
                 "metadata": history.metadata,
                 "created_at": history.created_at,
-                "candidate_name": candidate_name,
-                "candidate_code": candidate_code,
+                "candidate_name": full_name,
+                "candidate_code": candidate_id,
                 "exam_name": exam_name,
                 "subject_name": subject_name,
                 "changed_by_name": changed_by_name

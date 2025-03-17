@@ -5,7 +5,7 @@ This module defines the ScoreReview model for tracking requests to review
 and potentially adjust candidate exam scores.
 """
 
-from sqlalchemy import Column, Integer, String, Text, Date, ForeignKey, DECIMAL, DateTime
+from sqlalchemy import Column, Integer, String, Text, Date, ForeignKey, DECIMAL, DateTime, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship, validates
 from app.infrastructure.database.connection import Base
@@ -30,6 +30,7 @@ class ScoreReview(Base):
     review_result = Column(Text)
     review_date = Column(Date)
     additional_info = Column(Text)
+    score_review_metadata = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

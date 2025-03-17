@@ -1,122 +1,112 @@
 """
-Score Review service module.
+Score Review Service module.
 
-This module provides business logic for score reviews, bridging
-the API layer with the repository layer.
+This module provides business logic for managing score reviews.
 """
 
 import logging
 from typing import List, Optional, Dict, Any, Tuple
 from sqlalchemy import select
 from datetime import datetime
+from decimal import Decimal
 
 from app.repositories.score_review_repository import ScoreReviewRepository
 from app.repositories.exam_score_repository import ExamScoreRepository
+from app.repositories.exam_score_history_repository import ExamScoreHistoryRepository
 from app.domain.models.score_review import ScoreReview
 from app.domain.models.exam_score import ExamScore
 
 logger = logging.getLogger(__name__)
 
 class ScoreReviewService:
-    """Service for handling score review business logic."""
+    """Service for managing score reviews."""
     
     def __init__(
         self, 
-        repository: ScoreReviewRepository,
-        exam_score_repository: Optional[ExamScoreRepository] = None
+        repository: ScoreReviewRepository, 
+        exam_score_repository: ExamScoreRepository,
+        history_repository: Optional[ExamScoreHistoryRepository] = None
     ):
         """
-        Initialize the service with repositories.
+        Initialize the ScoreReviewService.
         
         Args:
-            repository: Repository for score review data access
-            exam_score_repository: Repository for exam score data access
+            repository: ScoreReviewRepository instance
+            exam_score_repository: ExamScoreRepository instance
+            history_repository: ExamScoreHistoryRepository instance (optional)
         """
         self.repository = repository
         self.exam_score_repository = exam_score_repository
+        self.history_repository = history_repository
     
     async def get_all_reviews(
         self, 
         skip: int = 0, 
         limit: int = 100,
         search: Optional[str] = None,
-        status: Optional[str] = None,
-        priority: Optional[str] = None,
+        review_status: Optional[str] = None,
         score_id: Optional[str] = None,
-        requested_by: Optional[str] = None,
-        assigned_to: Optional[str] = None,
-        candidate_id: Optional[str] = None,
-        exam_id: Optional[str] = None,
-        subject_id: Optional[str] = None,
+        request_date_from: Optional[str] = None,
+        request_date_to: Optional[str] = None,
+        review_date_from: Optional[str] = None,
+        review_date_to: Optional[str] = None,
         created_after: Optional[str] = None,
-        created_before: Optional[str] = None,
-        resolved_after: Optional[str] = None,
-        resolved_before: Optional[str] = None
+        created_before: Optional[str] = None
     ) -> Tuple[List[Dict], int]:
         """
-        Get all score reviews with pagination and optional filtering.
+        Get all score reviews with pagination and filtering.
         
         Args:
-            skip: Number of records to skip (for pagination)
+            skip: Number of records to skip
             limit: Maximum number of records to return
-            search: Optional search term for filtering
-            status: Optional filter by review status
-            priority: Optional filter by review priority
-            score_id: Optional filter by exam score ID
-            requested_by: Optional filter by user who requested the review
-            assigned_to: Optional filter by user assigned to the review
-            candidate_id: Optional filter by candidate ID
-            exam_id: Optional filter by exam ID
-            subject_id: Optional filter by subject ID
-            created_after: Optional filter by reviews created after date (YYYY-MM-DD)
-            created_before: Optional filter by reviews created before date (YYYY-MM-DD)
-            resolved_after: Optional filter by reviews resolved after date (YYYY-MM-DD)
-            resolved_before: Optional filter by reviews resolved before date (YYYY-MM-DD)
+            search: Search term for candidate name/code, exam name, or subject name/code
+            review_status: Filter by review status
+            score_id: Filter by exam score ID
+            request_date_from: Filter by request date from
+            request_date_to: Filter by request date to
+            review_date_from: Filter by review date from
+            review_date_to: Filter by review date to
+            created_after: Filter by reviews created after date
+            created_before: Filter by reviews created before date
             
         Returns:
-            Tuple containing the list of score reviews and total count
+            Tuple of (list of score reviews, total count)
         """
         filters = {}
+        
         if search:
             filters["search"] = search
-        if status:
-            filters["status"] = status
-        if priority:
-            filters["priority"] = priority
+        if review_status:
+            filters["review_status"] = review_status
         if score_id:
             filters["score_id"] = score_id
-        if requested_by:
-            filters["requested_by"] = requested_by
-        if assigned_to:
-            filters["assigned_to"] = assigned_to
-        if candidate_id:
-            filters["candidate_id"] = candidate_id
-        if exam_id:
-            filters["exam_id"] = exam_id
-        if subject_id:
-            filters["subject_id"] = subject_id
+        if request_date_from:
+            filters["request_date_from"] = request_date_from
+        if request_date_to:
+            filters["request_date_to"] = request_date_to
+        if review_date_from:
+            filters["review_date_from"] = review_date_from
+        if review_date_to:
+            filters["review_date_to"] = review_date_to
         if created_after:
             filters["created_after"] = created_after
         if created_before:
             filters["created_before"] = created_before
-        if resolved_after:
-            filters["resolved_after"] = resolved_after
-        if resolved_before:
-            filters["resolved_before"] = resolved_before
         
-        return await self.repository.get_all(skip=skip, limit=limit, filters=filters)
+        reviews, total = await self.repository.get_all(skip=skip, limit=limit, filters=filters)
+        return reviews, total
     
-    async def get_review_by_id(self, review_id: str) -> Optional[Dict]:
+    async def get_review_by_id(self, score_review_id: str) -> Optional[Dict]:
         """
-        Get a score review by its ID.
+        Get a score review by ID.
         
         Args:
-            review_id: The unique identifier of the score review
+            score_review_id: The unique identifier of the score review
             
         Returns:
-            The score review if found, None otherwise
+            Score review dict or None if not found
         """
-        return await self.repository.get_by_id(review_id)
+        return await self.repository.get_by_id(score_review_id)
     
     async def get_reviews_by_score_id(self, score_id: str) -> List[Dict]:
         """
@@ -126,33 +116,9 @@ class ScoreReviewService:
             score_id: The ID of the exam score
             
         Returns:
-            List of reviews for the specified exam score
+            List of score reviews
         """
         return await self.repository.get_by_score_id(score_id)
-    
-    async def get_reviews_by_requested_by(self, user_id: str) -> List[Dict]:
-        """
-        Get all reviews requested by a specific user.
-        
-        Args:
-            user_id: The ID of the user who requested the reviews
-            
-        Returns:
-            List of reviews requested by the specified user
-        """
-        return await self.repository.get_by_requested_by(user_id)
-    
-    async def get_reviews_by_assigned_to(self, user_id: str) -> List[Dict]:
-        """
-        Get all reviews assigned to a specific user.
-        
-        Args:
-            user_id: The ID of the user who is assigned to the reviews
-            
-        Returns:
-            List of reviews assigned to the specified user
-        """
-        return await self.repository.get_by_assigned_to(user_id)
     
     async def get_reviews_by_candidate_id(self, candidate_id: str) -> List[Dict]:
         """
@@ -166,99 +132,69 @@ class ScoreReviewService:
         """
         return await self.repository.get_by_candidate_id(candidate_id)
     
-    async def create_review(self, review_data: Dict[str, Any]) -> Optional[ScoreReview]:
+    async def create_review(self, review_data: Dict) -> Optional[Dict]:
         """
-        Create a new score review after validating the exam score ID.
+        Create a new score review.
         
         Args:
-            review_data: Dictionary containing the score review data
+            review_data: Score review data
             
         Returns:
-            The created score review if successful, None otherwise
+            Created score review or None if creation failed
         """
-        # Validate that exam score exists if repository is provided
-        if self.exam_score_repository:
-            score = await self.exam_score_repository.get_by_id(review_data["score_id"])
-            
+        # Validate that the exam score exists
+        score_id = review_data.get("score_id")
+        if score_id:
+            score = await self.exam_score_repository.get_by_id(score_id)
             if not score:
-                logger.error(f"Exam score with ID {review_data['score_id']} not found")
                 return None
+            
+            # Set original_score from the exam score if not provided
+            if "original_score" not in review_data and score:
+                review_data["original_score"] = score.get("score")
         
-        # Create the review
-        return await self.repository.create(review_data)
+        # Set request_date if not provided
+        if "request_date" not in review_data:
+            review_data["request_date"] = datetime.now().date().isoformat()
+        
+        # Set initial review_status if not provided
+        if "review_status" not in review_data:
+            review_data["review_status"] = "pending"
+        
+        created_review = await self.repository.create(review_data)
+        return created_review
     
-    async def update_review(self, review_id: str, review_data: Dict[str, Any]) -> Optional[ScoreReview]:
+    async def update_review(self, score_review_id: str, review_data: Dict) -> Optional[Dict]:
         """
         Update a score review.
         
         Args:
-            review_id: The unique identifier of the score review
-            review_data: Dictionary containing the updated data
+            score_review_id: The unique identifier of the score review
+            review_data: Updated score review data
             
         Returns:
-            The updated score review if found, None otherwise
+            Updated score review or None if not found
         """
-        # Get existing review to check status transitions
-        existing_review_dict = await self.repository.get_by_id(review_id)
-        if not existing_review_dict:
-            logger.error(f"Score review with ID {review_id} not found")
-            return None
-        
-        # Special handling for status transitions
-        if "status" in review_data and review_data["status"] != existing_review_dict["status"]:
-            # If status is changing to a completed state (APPROVED, REJECTED, COMPLETED), set resolved_at
-            if review_data["status"] in ["approved", "rejected", "completed"] and not review_data.get("resolved_at"):
-                review_data["resolved_at"] = datetime.now()
-                logger.info(f"Automatically set resolved_at for review {review_id} with status {review_data['status']}")
-        
-        # Remove any empty fields
-        cleaned_data = {k: v for k, v in review_data.items() if v is not None}
-        
-        # Don't update if no fields to update
-        if not cleaned_data:
-            # Just return the existing record without database operation
-            query = select(ScoreReview).filter(ScoreReview.review_id == review_id)
-            result = await self.repository.db.execute(query)
-            return result.scalar_one_or_none()
-        
-        return await self.repository.update(review_id, cleaned_data)
+        return await self.repository.update(score_review_id, review_data)
     
-    async def delete_review(self, review_id: str) -> bool:
+    async def delete_review(self, score_review_id: str) -> bool:
         """
         Delete a score review.
         
         Args:
-            review_id: The unique identifier of the score review
+            score_review_id: The unique identifier of the score review
             
         Returns:
-            True if the score review was deleted, False otherwise
+            True if deleted, False if not found
         """
-        return await self.repository.delete(review_id)
+        return await self.repository.delete(score_review_id)
     
-    async def assign_review(self, review_id: str, assigned_to: str) -> Optional[ScoreReview]:
-        """
-        Assign a score review to a user.
-        
-        Args:
-            review_id: The unique identifier of the score review
-            assigned_to: The ID of the user to assign the review to
-            
-        Returns:
-            The updated score review if found, None otherwise
-        """
-        update_data = {
-            "assigned_to": assigned_to,
-            "status": "in_progress"  # Change status to in_progress when assigned
-        }
-        
-        return await self.update_review(review_id, update_data)
-    
-    async def update_review_status(self, review_id: str, status: str, resolution_notes: Optional[str] = None) -> Optional[ScoreReview]:
+    async def update_review_status(self, score_review_id: str, status: str, resolution_notes: Optional[str] = None) -> Optional[ScoreReview]:
         """
         Update the status of a score review.
         
         Args:
-            review_id: The unique identifier of the score review
+            score_review_id: The unique identifier of the score review
             status: The new status
             resolution_notes: Optional notes about the resolution
             
@@ -266,47 +202,51 @@ class ScoreReviewService:
             The updated score review if found, None otherwise
         """
         update_data = {
-            "status": status
+            "review_status": status
         }
         
-        # Add resolution notes if provided
+        # Add additional_info if provided
         if resolution_notes:
-            update_data["resolution_notes"] = resolution_notes
+            update_data["additional_info"] = resolution_notes
         
-        # Set resolved_at for terminal statuses
+        # Set review_date for terminal statuses
         if status in ["approved", "rejected", "completed"]:
-            update_data["resolved_at"] = datetime.now()
+            update_data["review_date"] = datetime.now().date()
         
-        return await self.update_review(review_id, update_data)
+        return await self.update_review(score_review_id, update_data)
     
-    async def approve_review(self, review_id: str, resolution_notes: Optional[str] = None) -> Optional[Dict]:
+    async def approve_review(self, score_review_id: str, resolution_notes: Optional[str] = None) -> Optional[Dict]:
         """
         Approve a score review and update the associated exam score.
         
         Args:
-            review_id: The unique identifier of the score review
+            score_review_id: The unique identifier of the score review
             resolution_notes: Optional notes about the resolution
             
         Returns:
             Dictionary with the updated review and score information if successful, None otherwise
         """
-        # Get the review to check the expected score
-        review = await self.repository.get_by_id(review_id)
+        # Get the review to check the reviewed score
+        review = await self.repository.get_by_id(score_review_id)
         if not review:
-            logger.error(f"Score review with ID {review_id} not found")
+            logger.error(f"Score review with ID {score_review_id} not found")
             return None
         
-        if not review["expected_score"]:
-            logger.error(f"Score review with ID {review_id} has no expected score")
+        if not review.get("reviewed_score"):
+            logger.error(f"Score review with ID {score_review_id} has no reviewed score")
             return None
         
         # Update the score if exam_score_repository is provided
         updated_score = None
         if self.exam_score_repository:
             score_update = {
-                "score": review["expected_score"],
-                "status": "revised"  # Mark the score as revised
+                "score": review["reviewed_score"],
+                "status": "revised"
             }
+            
+            # Get original score before update for history tracking
+            original_score = await self.exam_score_repository.get_by_id(review["score_id"])
+            original_score_value = original_score.get("score") if original_score else None
             
             # Update the exam score
             updated_score = await self.exam_score_repository.update(review["score_id"], score_update)
@@ -314,39 +254,133 @@ class ScoreReviewService:
             if not updated_score:
                 logger.error(f"Failed to update exam score with ID {review['score_id']}")
                 return None
+                
+            # Create history entry if history repository is available
+            if self.history_repository and updated_score:
+                # Create a history entry for the score change
+                await self.history_repository.create_from_score_change(
+                    score_id=review["score_id"],
+                    previous_score=original_score_value,
+                    new_score=review["reviewed_score"],
+                    changed_by=None,  # Could be set from request context if available
+                    change_type="REVIEW_APPROVED",
+                    reason=resolution_notes or f"Score review {score_review_id} approved",
+                    review_id=score_review_id,
+                    metadata={
+                        "review_status": "approved",
+                        "original_score": str(original_score_value) if original_score_value else None,
+                        "reviewed_score": str(review["reviewed_score"]) if review["reviewed_score"] else None,
+                    }
+                )
         
         # Update the review status
         update_data = {
-            "status": "approved",
-            "resolved_at": datetime.now()
+            "review_status": "approved",
+            "review_date": datetime.now().date()
         }
         
         if resolution_notes:
-            update_data["resolution_notes"] = resolution_notes
+            update_data["additional_info"] = resolution_notes
         
         # Update the review
-        updated_review = await self.repository.update(review_id, update_data)
+        updated_review = await self.repository.update(score_review_id, update_data)
         
         return {
             "review": updated_review,
             "score": updated_score
         }
     
-    async def reject_review(self, review_id: str, resolution_notes: str) -> Optional[ScoreReview]:
+    async def reject_review(self, score_review_id: str, resolution_notes: str) -> Optional[ScoreReview]:
         """
         Reject a score review.
         
         Args:
-            review_id: The unique identifier of the score review
+            score_review_id: The unique identifier of the score review
             resolution_notes: Notes explaining the rejection reason
             
         Returns:
             The updated score review if found, None otherwise
         """
         update_data = {
-            "status": "rejected",
-            "resolution_notes": resolution_notes,
-            "resolved_at": datetime.now()
+            "review_status": "rejected",
+            "additional_info": resolution_notes,
+            "review_date": datetime.now().date()
         }
         
-        return await self.update_review(review_id, update_data) 
+        return await self.update_review(score_review_id, update_data)
+    
+    async def complete_review(
+        self, 
+        score_review_id: str, 
+        reviewed_score: float, 
+        review_result: str
+    ) -> Optional[Dict]:
+        """
+        Complete a score review and update the associated exam score.
+        
+        Args:
+            score_review_id: The unique identifier of the score review
+            reviewed_score: The final reviewed score
+            review_result: Result of the review
+            
+        Returns:
+            Dict with updated review and score, or None if not found
+        """
+        # Get the review
+        review = await self.repository.get_by_id(score_review_id)
+        if not review:
+            return None
+        
+        # Update the review
+        update_data = {
+            "review_status": "completed",
+            "reviewed_score": Decimal(str(reviewed_score)),
+            "review_result": review_result,
+            "review_date": datetime.now().date().isoformat()
+        }
+        
+        updated_review = await self.repository.update(score_review_id, update_data)
+        if not updated_review:
+            return None
+        
+        # Update the exam score if necessary
+        score_id = review.get("score_id")
+        if score_id and review_result == "approved":
+            score = await self.exam_score_repository.get_by_id(score_id)
+            if score:
+                # Get the original score value for history tracking
+                original_score_value = score.get("score")
+                
+                # Update the score
+                await self.exam_score_repository.update(
+                    score_id, 
+                    {
+                        "score": Decimal(str(reviewed_score)),
+                        "last_modified_at": datetime.now().isoformat(),
+                        "modified_reason": f"Score updated due to review {score_review_id}"
+                    }
+                )
+                updated_score = await self.exam_score_repository.get_by_id(score_id)
+                
+                # Create history entry if history repository is available
+                if self.history_repository and updated_score:
+                    # Create a history entry for the score change
+                    await self.history_repository.create_from_score_change(
+                        score_id=score_id,
+                        previous_score=original_score_value,
+                        new_score=reviewed_score,
+                        changed_by=None,  # Could be set from request context if available
+                        change_type="REVIEW_COMPLETED",
+                        reason=f"Score review {score_review_id} completed with result: {review_result}",
+                        review_id=score_review_id,
+                        metadata={
+                            "review_status": "completed",
+                            "review_result": review_result,
+                            "original_score": str(original_score_value) if original_score_value else None,
+                            "reviewed_score": str(reviewed_score)
+                        }
+                    )
+                
+                return {"review": updated_review, "score": updated_score}
+        
+        return {"review": updated_review, "score": None} 

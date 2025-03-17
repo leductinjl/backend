@@ -16,6 +16,7 @@ from sqlalchemy.sql import expression
 from app.domain.models.exam_score import ExamScore
 from app.domain.models.exam_subject import ExamSubject
 from app.domain.models.candidate import Candidate
+from app.domain.models.candidate_exam import CandidateExam
 from app.domain.models.exam import Exam
 from app.domain.models.subject import Subject
 from app.services.id_service import generate_model_id
@@ -57,10 +58,8 @@ class ExamScoreRepository:
                 ExamScore,
                 Candidate.candidate_id,
                 Candidate.full_name.label("candidate_name"),
-                Candidate.candidate_code,
                 Exam.exam_id,
                 Exam.exam_name,
-                Exam.exam_date,
                 Subject.subject_id,
                 Subject.subject_name,
                 Subject.subject_code,
@@ -70,7 +69,8 @@ class ExamScoreRepository:
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
             .join(Subject, ExamSubject.subject_id == Subject.subject_id)
             .join(Exam, ExamSubject.exam_id == Exam.exam_id)
-            .join(Candidate, Exam.candidate_id == Candidate.candidate_id)
+            .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
+            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
         )
         
         # Apply filters if any
@@ -79,15 +79,13 @@ class ExamScoreRepository:
             
             for field, value in filters.items():
                 if field == "search" and value:
-                    # Search in candidate name, code, exam name, or subject name
+                    # Search in candidate name, exam name, or subject name
                     search_term = f"%{value}%"
                     filter_conditions.append(
                         or_(
                             Candidate.full_name.ilike(search_term),
-                            Candidate.candidate_code.ilike(search_term),
                             Exam.exam_name.ilike(search_term),
-                            Subject.subject_name.ilike(search_term),
-                            Subject.subject_code.ilike(search_term)
+                            Subject.subject_name.ilike(search_term)
                         )
                     )
                 elif field == "candidate_id" and value:
@@ -123,7 +121,7 @@ class ExamScoreRepository:
         
         # Process results to include related entity names
         scores = []
-        for score, candidate_id, candidate_name, candidate_code, exam_id, exam_name, exam_date, subject_id, subject_name, subject_code, max_score, passing_score in result:
+        for score, candidate_id, candidate_name, exam_id, exam_name, subject_id, subject_name, subject_code, max_score, passing_score in result:
             score_dict = {
                 "exam_score_id": score.exam_score_id,
                 "exam_subject_id": score.exam_subject_id,
@@ -137,10 +135,8 @@ class ExamScoreRepository:
                 "updated_at": score.updated_at,
                 "candidate_id": candidate_id,
                 "candidate_name": candidate_name,
-                "candidate_code": candidate_code,
                 "exam_id": exam_id,
                 "exam_name": exam_name,
-                "exam_date": exam_date,
                 "subject_id": subject_id,
                 "subject_name": subject_name,
                 "subject_code": subject_code,
@@ -166,10 +162,8 @@ class ExamScoreRepository:
                 ExamScore,
                 Candidate.candidate_id,
                 Candidate.full_name.label("candidate_name"),
-                Candidate.candidate_code,
                 Exam.exam_id,
                 Exam.exam_name,
-                Exam.exam_date,
                 Subject.subject_id,
                 Subject.subject_name,
                 Subject.subject_code,
@@ -179,7 +173,8 @@ class ExamScoreRepository:
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
             .join(Subject, ExamSubject.subject_id == Subject.subject_id)
             .join(Exam, ExamSubject.exam_id == Exam.exam_id)
-            .join(Candidate, Exam.candidate_id == Candidate.candidate_id)
+            .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
+            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
             .filter(ExamScore.exam_score_id == exam_score_id)
         )
         
@@ -189,7 +184,7 @@ class ExamScoreRepository:
         if not row:
             return None
         
-        score, candidate_id, candidate_name, candidate_code, exam_id, exam_name, exam_date, subject_id, subject_name, subject_code, max_score, passing_score = row
+        score, candidate_id, candidate_name, exam_id, exam_name, subject_id, subject_name, subject_code, max_score, passing_score = row
         return {
             "exam_score_id": score.exam_score_id,
             "exam_subject_id": score.exam_subject_id,
@@ -203,10 +198,8 @@ class ExamScoreRepository:
             "updated_at": score.updated_at,
             "candidate_id": candidate_id,
             "candidate_name": candidate_name,
-            "candidate_code": candidate_code,
             "exam_id": exam_id,
             "exam_name": exam_name,
-            "exam_date": exam_date,
             "subject_id": subject_id,
             "subject_name": subject_name,
             "subject_code": subject_code,
@@ -229,18 +222,23 @@ class ExamScoreRepository:
                 ExamScore,
                 Candidate.candidate_id,
                 Candidate.full_name.label("candidate_name"),
-                Candidate.candidate_code
+                Exam.exam_id,
+                Exam.exam_name,
+                Subject.subject_id,
+                Subject.subject_name,
+                Subject.subject_code
             )
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
             .join(Exam, ExamSubject.exam_id == Exam.exam_id)
-            .join(Candidate, Exam.candidate_id == Candidate.candidate_id)
+            .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
+            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
             .filter(ExamScore.exam_subject_id == exam_subject_id)
         )
         
         result = await self.db.execute(query)
         
         scores = []
-        for score, candidate_id, candidate_name, candidate_code in result:
+        for score, candidate_id, candidate_name, exam_id, exam_name, subject_id, subject_name, subject_code in result:
             score_dict = {
                 "exam_score_id": score.exam_score_id,
                 "exam_subject_id": score.exam_subject_id,
@@ -254,7 +252,11 @@ class ExamScoreRepository:
                 "updated_at": score.updated_at,
                 "candidate_id": candidate_id,
                 "candidate_name": candidate_name,
-                "candidate_code": candidate_code
+                "exam_id": exam_id,
+                "exam_name": exam_name,
+                "subject_id": subject_id,
+                "subject_name": subject_name,
+                "subject_code": subject_code
             }
             scores.append(score_dict)
         
@@ -282,7 +284,8 @@ class ExamScoreRepository:
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
             .join(Subject, ExamSubject.subject_id == Subject.subject_id)
             .join(Exam, ExamSubject.exam_id == Exam.exam_id)
-            .join(Candidate, Exam.candidate_id == Candidate.candidate_id)
+            .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
+            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
             .filter(Candidate.candidate_id == candidate_id)
         )
         
@@ -326,7 +329,8 @@ class ExamScoreRepository:
             select(ExamScore)
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
             .join(Exam, ExamSubject.exam_id == Exam.exam_id)
-            .join(Candidate, Exam.candidate_id == Candidate.candidate_id)
+            .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
+            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
             .filter(
                 ExamScore.exam_subject_id == exam_subject_id,
                 Candidate.candidate_id == candidate_id

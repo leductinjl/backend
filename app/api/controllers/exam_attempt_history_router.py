@@ -29,8 +29,8 @@ from app.api.dto.exam_attempt_history import (
 )
 
 router = APIRouter(
-    prefix="/exam-attempt-history",
-    tags=["Exam Attempt History"],
+    prefix="/exam-attempt-histories",
+    tags=["Attempt Histories"],
     responses={404: {"description": "Not found"}},
 )
 

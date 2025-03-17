@@ -7,11 +7,12 @@ including CRUD operations and queries.
 
 import logging
 from typing import List, Optional, Dict, Any, Tuple
-from datetime import datetime
+from datetime import datetime, date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, func, join, and_, or_
 from sqlalchemy.sql import expression
+from sqlalchemy.orm import joinedload
 
 from app.domain.models.score_review import ScoreReview
 from app.domain.models.exam_score import ExamScore
@@ -53,225 +54,150 @@ class ScoreReviewRepository:
         Returns:
             Tuple containing the list of score reviews with details and total count
         """
-        # Base query with all necessary joins
-        query = (
-            select(
-                ScoreReview,
-                ExamScore.score,
-                Candidate.candidate_name,
-                Candidate.candidate_code,
-                Exam.exam_name,
-                Subject.subject_name,
-                ExamSubject.max_score
-            )
-            .join(ExamScore, ScoreReview.score_id == ExamScore.score_id)
-            .join(CandidateExam, ExamScore.candidate_exam_id == CandidateExam.candidate_exam_id)
-            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
-            .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
-            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
-            .join(Subject, ExamSubject.subject_id == Subject.subject_id)
-            .outerjoin(User, ScoreReview.assigned_to == User.user_id)
+        # Base query with eager loading of relationships
+        query = select(ScoreReview).options(
+            joinedload(ScoreReview.score)
         )
         
-        # Apply search filter
-        if filters and "search" in filters and filters["search"]:
-            search_term = f"%{filters['search']}%"
-            query = query.filter(
-                or_(
-                    Candidate.candidate_name.ilike(search_term),
-                    Candidate.candidate_code.ilike(search_term),
-                    Exam.exam_name.ilike(search_term),
-                    Subject.subject_name.ilike(search_term),
-                    Subject.subject_code.ilike(search_term),
-                    ScoreReview.reason.ilike(search_term)
-                )
-            )
-        
-        # Apply status filter
-        if filters and "status" in filters and filters["status"]:
-            query = query.filter(ScoreReview.status == filters["status"])
-        
-        # Apply priority filter
-        if filters and "priority" in filters and filters["priority"]:
-            query = query.filter(ScoreReview.priority == filters["priority"])
-        
-        # Apply score_id filter
-        if filters and "score_id" in filters and filters["score_id"]:
-            query = query.filter(ScoreReview.score_id == filters["score_id"])
-        
-        # Apply requested_by filter
-        if filters and "requested_by" in filters and filters["requested_by"]:
-            query = query.filter(ScoreReview.requested_by == filters["requested_by"])
-        
-        # Apply assigned_to filter
-        if filters and "assigned_to" in filters and filters["assigned_to"]:
-            query = query.filter(ScoreReview.assigned_to == filters["assigned_to"])
-        
-        # Apply candidate_id filter
-        if filters and "candidate_id" in filters and filters["candidate_id"]:
-            query = query.filter(CandidateExam.candidate_id == filters["candidate_id"])
-        
-        # Apply exam_id filter
-        if filters and "exam_id" in filters and filters["exam_id"]:
-            query = query.filter(ExamSubject.exam_id == filters["exam_id"])
-        
-        # Apply subject_id filter
-        if filters and "subject_id" in filters and filters["subject_id"]:
-            query = query.filter(ExamSubject.subject_id == filters["subject_id"])
-        
-        # Apply created_after filter
-        if filters and "created_after" in filters and filters["created_after"]:
-            query = query.filter(ScoreReview.created_at >= filters["created_after"])
-        
-        # Apply created_before filter
-        if filters and "created_before" in filters and filters["created_before"]:
-            query = query.filter(ScoreReview.created_at <= filters["created_before"])
-        
-        # Apply resolved_after filter
-        if filters and "resolved_after" in filters and filters["resolved_after"]:
-            query = query.filter(ScoreReview.resolved_at >= filters["resolved_after"])
-        
-        # Apply resolved_before filter
-        if filters and "resolved_before" in filters and filters["resolved_before"]:
-            query = query.filter(ScoreReview.resolved_at <= filters["resolved_before"])
-        
-        # Apply additional filters if any
+        # Apply filters
         if filters:
-            for field, value in filters.items():
-                if field not in ["search", "status", "priority", "score_id", "requested_by", "assigned_to",
-                                "candidate_id", "exam_id", "subject_id", "created_after", "created_before",
-                                "resolved_after", "resolved_before"] and value is not None:
-                    if hasattr(ScoreReview, field):
-                        query = query.filter(getattr(ScoreReview, field) == value)
+            if "search" in filters and filters["search"]:
+                search_term = f"%{filters['search']}%"
+                # Join all needed tables explicitly for searching
+                query = query.join(
+                    ExamScore, ScoreReview.score_id == ExamScore.score_id
+                ).join(
+                    ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id
+                ).join(
+                    Exam, ExamSubject.exam_id == Exam.exam_id
+                ).join(
+                    Subject, ExamSubject.subject_id == Subject.subject_id
+                ).join(
+                    CandidateExam, Exam.exam_id == CandidateExam.exam_id
+                ).join(
+                    Candidate, CandidateExam.candidate_id == Candidate.candidate_id
+                ).filter(
+                    or_(
+                        Candidate.full_name.ilike(search_term),
+                    Exam.exam_name.ilike(search_term),
+                        Subject.name.ilike(search_term),
+                        Subject.subject_code.ilike(search_term)
+                    )
+                )
+            
+            if "review_status" in filters and filters["review_status"]:
+                query = query.filter(ScoreReview.review_status == filters["review_status"])
+            
+            if "score_id" in filters and filters["score_id"]:
+                query = query.filter(ScoreReview.score_id == filters["score_id"])
+        
+            if "request_date_from" in filters and filters["request_date_from"]:
+                date_from = date.fromisoformat(filters["request_date_from"])
+                query = query.filter(ScoreReview.request_date >= date_from)
+            
+            if "request_date_to" in filters and filters["request_date_to"]:
+                date_to = date.fromisoformat(filters["request_date_to"])
+                query = query.filter(ScoreReview.request_date <= date_to)
+            
+            if "review_date_from" in filters and filters["review_date_from"]:
+                date_from = date.fromisoformat(filters["review_date_from"])
+                query = query.filter(ScoreReview.review_date >= date_from)
+            
+            if "review_date_to" in filters and filters["review_date_to"]:
+                date_to = date.fromisoformat(filters["review_date_to"])
+                query = query.filter(ScoreReview.review_date <= date_to)
+            
+            if "created_after" in filters and filters["created_after"]:
+                created_after = datetime.fromisoformat(filters["created_after"])
+                query = query.filter(ScoreReview.created_at >= created_after)
+            
+            if "created_before" in filters and filters["created_before"]:
+                created_before = datetime.fromisoformat(filters["created_before"])
+                query = query.filter(ScoreReview.created_at <= created_before)
         
         # Get total count
         count_query = select(func.count()).select_from(query.subquery())
         total = await self.db.scalar(count_query)
         
         # Apply pagination
-        query = query.offset(skip).limit(limit)
+        query = query.offset(skip).limit(limit).order_by(ScoreReview.created_at.desc())
         
-        # Execute query
         result = await self.db.execute(query)
+        reviews = result.scalars().unique().all()
         
-        # Process results to include related entity names
-        score_reviews = []
-        for review, current_score, candidate_name, candidate_code, exam_name, subject_name, max_score in result:
-            # Get requested_by and assigned_to names if available
-            requested_by_name = None
-            assigned_to_name = None
-            
-            if review.requested_by:
-                requester_query = select(User.name).filter(User.user_id == review.requested_by)
-                requester_result = await self.db.execute(requester_query)
-                requested_by_name = requester_result.scalar_one_or_none()
-            
-            if review.assigned_to:
-                assignee_query = select(User.name).filter(User.user_id == review.assigned_to)
-                assignee_result = await self.db.execute(assignee_query)
-                assigned_to_name = assignee_result.scalar_one_or_none()
-            
-            score_review_dict = {
-                "review_id": review.review_id,
-                "score_id": review.score_id,
-                "requested_by": review.requested_by,
-                "reason": review.reason,
-                "expected_score": review.expected_score,
-                "status": review.status,
-                "priority": review.priority,
-                "assigned_to": review.assigned_to,
-                "resolution_notes": review.resolution_notes,
-                "resolved_at": review.resolved_at,
-                "metadata": review.metadata,
-                "created_at": review.created_at,
-                "updated_at": review.updated_at,
-                "candidate_name": candidate_name,
-                "candidate_code": candidate_code,
-                "exam_name": exam_name,
-                "subject_name": subject_name,
-                "current_score": current_score,
-                "max_score": max_score,
-                "requested_by_name": requested_by_name,
-                "assigned_to_name": assigned_to_name
-            }
-            score_reviews.append(score_review_dict)
+        # Convert ORM objects to dictionaries
+        reviews_dict = [self._entity_to_dict(review) for review in reviews]
         
-        return score_reviews, total or 0
+        return reviews_dict, total or 0
     
-    async def get_by_id(self, review_id: str) -> Optional[Dict]:
+    async def get_by_id(self, score_review_id: str) -> Optional[Dict]:
         """
         Get a score review by its ID, including related entity details.
         
         Args:
-            review_id: The unique identifier of the score review
+            score_review_id: The unique identifier of the score review
             
         Returns:
             The score review with related entity details if found, None otherwise
         """
-        query = (
-            select(
-                ScoreReview,
-                ExamScore.score,
-                Candidate.candidate_name,
-                Candidate.candidate_code,
-                Exam.exam_name,
-                Subject.subject_name,
-                ExamSubject.max_score
-            )
-            .join(ExamScore, ScoreReview.score_id == ExamScore.score_id)
-            .join(CandidateExam, ExamScore.candidate_exam_id == CandidateExam.candidate_exam_id)
-            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
-            .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
-            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
-            .join(Subject, ExamSubject.subject_id == Subject.subject_id)
-            .filter(ScoreReview.review_id == review_id)
+        # Query with the score review and eager load the exam score
+        query = select(ScoreReview).options(
+            joinedload(ScoreReview.score)
+        ).filter(
+            ScoreReview.score_review_id == score_review_id
         )
         
         result = await self.db.execute(query)
-        row = result.first()
+        review = result.scalar_one_or_none()
         
-        if not row:
+        if not review:
             return None
         
-        review, current_score, candidate_name, candidate_code, exam_name, subject_name, max_score = row
+        # Additional query to get related data
+        if review.score:
+            # Get exam information
+            exam_query = select(Exam).join(
+                ExamSubject, Exam.exam_id == ExamSubject.exam_id
+            ).join(
+                ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
+            ).filter(
+                ExamScore.score_id == review.score_id
+            )
+            exam_result = await self.db.execute(exam_query)
+            exam = exam_result.scalar_one_or_none()
+            
+            # Get subject information
+            subject_query = select(Subject).join(
+                ExamSubject, Subject.subject_id == ExamSubject.subject_id
+            ).join(
+                ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
+            ).filter(
+                ExamScore.score_id == review.score_id
+            )
+            subject_result = await self.db.execute(subject_query)
+            subject = subject_result.scalar_one_or_none()
+            
+            # Get candidate information
+            candidate_query = select(Candidate).join(
+                CandidateExam, Candidate.candidate_id == CandidateExam.candidate_id
+            ).join(
+                Exam, CandidateExam.exam_id == Exam.exam_id
+            ).join(
+                ExamSubject, Exam.exam_id == ExamSubject.exam_id
+            ).join(
+                ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
+            ).filter(
+                ExamScore.score_id == review.score_id
+            )
+            candidate_result = await self.db.execute(candidate_query)
+            candidate = candidate_result.scalar_one_or_none()
+            
+            # Add related entities to the score for use in _entity_to_dict
+            review.score._exam = exam
+            review.score._subject = subject
+            review.score._candidate = candidate
         
-        # Get requested_by and assigned_to names if available
-        requested_by_name = None
-        assigned_to_name = None
-        
-        if review.requested_by:
-            requester_query = select(User.name).filter(User.user_id == review.requested_by)
-            requester_result = await self.db.execute(requester_query)
-            requested_by_name = requester_result.scalar_one_or_none()
-        
-        if review.assigned_to:
-            assignee_query = select(User.name).filter(User.user_id == review.assigned_to)
-            assignee_result = await self.db.execute(assignee_query)
-            assigned_to_name = assignee_result.scalar_one_or_none()
-        
-        return {
-            "review_id": review.review_id,
-            "score_id": review.score_id,
-            "requested_by": review.requested_by,
-            "reason": review.reason,
-            "expected_score": review.expected_score,
-            "status": review.status,
-            "priority": review.priority,
-            "assigned_to": review.assigned_to,
-            "resolution_notes": review.resolution_notes,
-            "resolved_at": review.resolved_at,
-            "metadata": review.metadata,
-            "created_at": review.created_at,
-            "updated_at": review.updated_at,
-            "candidate_name": candidate_name,
-            "candidate_code": candidate_code,
-            "exam_name": exam_name,
-            "subject_name": subject_name,
-            "current_score": current_score,
-            "max_score": max_score,
-            "requested_by_name": requested_by_name,
-            "assigned_to_name": assigned_to_name
-        }
+        return self._entity_to_dict(review)
     
     async def get_by_score_id(self, score_id: str) -> List[Dict]:
         """
@@ -283,69 +209,69 @@ class ScoreReviewRepository:
         Returns:
             List of reviews for the specified exam score
         """
-        query = (
-            select(
-                ScoreReview,
-                ExamScore.score,
-                Candidate.candidate_name,
-                Candidate.candidate_code,
-                Exam.exam_name,
-                Subject.subject_name,
-                ExamSubject.max_score
-            )
-            .join(ExamScore, ScoreReview.score_id == ExamScore.score_id)
-            .join(CandidateExam, ExamScore.candidate_exam_id == CandidateExam.candidate_exam_id)
-            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
-            .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
-            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
-            .join(Subject, ExamSubject.subject_id == Subject.subject_id)
-            .filter(ScoreReview.score_id == score_id)
-        )
+        # Base query to get all reviews for the specified score
+        query = select(ScoreReview).options(
+            joinedload(ScoreReview.score)
+        ).filter(
+            ScoreReview.score_id == score_id
+        ).order_by(ScoreReview.created_at.desc())
         
         result = await self.db.execute(query)
+        reviews = result.scalars().all()
         
-        score_reviews = []
-        for review, current_score, candidate_name, candidate_code, exam_name, subject_name, max_score in result:
-            # Get requested_by and assigned_to names if available
-            requested_by_name = None
-            assigned_to_name = None
+        # If there are no reviews, return an empty list
+        if not reviews:
+            return []
             
-            if review.requested_by:
-                requester_query = select(User.name).filter(User.user_id == review.requested_by)
-                requester_result = await self.db.execute(requester_query)
-                requested_by_name = requester_result.scalar_one_or_none()
-            
-            if review.assigned_to:
-                assignee_query = select(User.name).filter(User.user_id == review.assigned_to)
-                assignee_result = await self.db.execute(assignee_query)
-                assigned_to_name = assignee_result.scalar_one_or_none()
-            
-            score_review_dict = {
-                "review_id": review.review_id,
-                "score_id": review.score_id,
-                "requested_by": review.requested_by,
-                "reason": review.reason,
-                "expected_score": review.expected_score,
-                "status": review.status,
-                "priority": review.priority,
-                "assigned_to": review.assigned_to,
-                "resolution_notes": review.resolution_notes,
-                "resolved_at": review.resolved_at,
-                "metadata": review.metadata,
-                "created_at": review.created_at,
-                "updated_at": review.updated_at,
-                "candidate_name": candidate_name,
-                "candidate_code": candidate_code,
-                "exam_name": exam_name,
-                "subject_name": subject_name,
-                "current_score": current_score,
-                "max_score": max_score,
-                "requested_by_name": requested_by_name,
-                "assigned_to_name": assigned_to_name
-            }
-            score_reviews.append(score_review_dict)
+        # Get exam, subject, and candidate information once for all reviews
+        # since they all relate to the same exam score
         
-        return score_reviews
+        # Get exam information
+        exam_query = select(Exam).join(
+            ExamSubject, Exam.exam_id == ExamSubject.exam_id
+        ).join(
+            ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
+        ).filter(
+            ExamScore.score_id == score_id
+        )
+        exam_result = await self.db.execute(exam_query)
+        exam = exam_result.scalar_one_or_none()
+        
+        # Get subject information
+        subject_query = select(Subject).join(
+            ExamSubject, Subject.subject_id == ExamSubject.subject_id
+        ).join(
+            ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
+        ).filter(
+            ExamScore.score_id == score_id
+        )
+        subject_result = await self.db.execute(subject_query)
+        subject = subject_result.scalar_one_or_none()
+        
+        # Get candidate information
+        candidate_query = select(Candidate).join(
+            CandidateExam, Candidate.candidate_id == CandidateExam.candidate_id
+        ).join(
+            Exam, CandidateExam.exam_id == Exam.exam_id
+        ).join(
+            ExamSubject, Exam.exam_id == ExamSubject.exam_id
+        ).join(
+            ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
+        ).filter(
+            ExamScore.score_id == score_id
+        )
+        candidate_result = await self.db.execute(candidate_query)
+        candidate = candidate_result.scalar_one_or_none()
+        
+        # Add related entities to each review's score object
+        for review in reviews:
+            if review.score:
+                review.score._exam = exam
+                review.score._subject = subject
+                review.score._candidate = candidate
+        
+        # Convert ORM objects to dictionaries
+        return [self._entity_to_dict(review) for review in reviews]
     
     async def get_by_requested_by(self, user_id: str) -> List[Dict]:
         """
@@ -357,63 +283,10 @@ class ScoreReviewRepository:
         Returns:
             List of reviews requested by the specified user
         """
-        query = (
-            select(
-                ScoreReview,
-                ExamScore.score,
-                Candidate.candidate_name,
-                Candidate.candidate_code,
-                Exam.exam_name,
-                Subject.subject_name,
-                ExamSubject.max_score
-            )
-            .join(ExamScore, ScoreReview.score_id == ExamScore.score_id)
-            .join(CandidateExam, ExamScore.candidate_exam_id == CandidateExam.candidate_exam_id)
-            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
-            .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
-            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
-            .join(Subject, ExamSubject.subject_id == Subject.subject_id)
-            .filter(ScoreReview.requested_by == user_id)
-        )
-        
-        result = await self.db.execute(query)
-        
-        score_reviews = []
-        for review, current_score, candidate_name, candidate_code, exam_name, subject_name, max_score in result:
-            # Get assigned_to name if available
-            assigned_to_name = None
-            
-            if review.assigned_to:
-                assignee_query = select(User.name).filter(User.user_id == review.assigned_to)
-                assignee_result = await self.db.execute(assignee_query)
-                assigned_to_name = assignee_result.scalar_one_or_none()
-            
-            score_review_dict = {
-                "review_id": review.review_id,
-                "score_id": review.score_id,
-                "requested_by": review.requested_by,
-                "reason": review.reason,
-                "expected_score": review.expected_score,
-                "status": review.status,
-                "priority": review.priority,
-                "assigned_to": review.assigned_to,
-                "resolution_notes": review.resolution_notes,
-                "resolved_at": review.resolved_at,
-                "metadata": review.metadata,
-                "created_at": review.created_at,
-                "updated_at": review.updated_at,
-                "candidate_name": candidate_name,
-                "candidate_code": candidate_code,
-                "exam_name": exam_name,
-                "subject_name": subject_name,
-                "current_score": current_score,
-                "max_score": max_score,
-                "requested_by_name": user_id,  # We already know the requester
-                "assigned_to_name": assigned_to_name
-            }
-            score_reviews.append(score_review_dict)
-        
-        return score_reviews
+        # For now, let's return an empty list as the model doesn't have requested_by field
+        # This will need to be updated when the field is added to the model
+        logger.warning("get_by_requested_by not fully implemented - model changes required")
+        return []
     
     async def get_by_assigned_to(self, user_id: str) -> List[Dict]:
         """
@@ -425,63 +298,10 @@ class ScoreReviewRepository:
         Returns:
             List of reviews assigned to the specified user
         """
-        query = (
-            select(
-                ScoreReview,
-                ExamScore.score,
-                Candidate.candidate_name,
-                Candidate.candidate_code,
-                Exam.exam_name,
-                Subject.subject_name,
-                ExamSubject.max_score
-            )
-            .join(ExamScore, ScoreReview.score_id == ExamScore.score_id)
-            .join(CandidateExam, ExamScore.candidate_exam_id == CandidateExam.candidate_exam_id)
-            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
-            .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
-            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
-            .join(Subject, ExamSubject.subject_id == Subject.subject_id)
-            .filter(ScoreReview.assigned_to == user_id)
-        )
-        
-        result = await self.db.execute(query)
-        
-        score_reviews = []
-        for review, current_score, candidate_name, candidate_code, exam_name, subject_name, max_score in result:
-            # Get requested_by name if available
-            requested_by_name = None
-            
-            if review.requested_by:
-                requester_query = select(User.name).filter(User.user_id == review.requested_by)
-                requester_result = await self.db.execute(requester_query)
-                requested_by_name = requester_result.scalar_one_or_none()
-            
-            score_review_dict = {
-                "review_id": review.review_id,
-                "score_id": review.score_id,
-                "requested_by": review.requested_by,
-                "reason": review.reason,
-                "expected_score": review.expected_score,
-                "status": review.status,
-                "priority": review.priority,
-                "assigned_to": review.assigned_to,
-                "resolution_notes": review.resolution_notes,
-                "resolved_at": review.resolved_at,
-                "metadata": review.metadata,
-                "created_at": review.created_at,
-                "updated_at": review.updated_at,
-                "candidate_name": candidate_name,
-                "candidate_code": candidate_code,
-                "exam_name": exam_name,
-                "subject_name": subject_name,
-                "current_score": current_score,
-                "max_score": max_score,
-                "requested_by_name": requested_by_name,
-                "assigned_to_name": user_id  # We already know the assignee
-            }
-            score_reviews.append(score_review_dict)
-        
-        return score_reviews
+        # For now, let's return an empty list as the model doesn't have assigned_to field
+        # This will need to be updated when the field is added to the model
+        logger.warning("get_by_assigned_to not fully implemented - model changes required")
+        return []
     
     async def get_by_candidate_id(self, candidate_id: str) -> List[Dict]:
         """
@@ -493,69 +313,73 @@ class ScoreReviewRepository:
         Returns:
             List of reviews related to the specified candidate
         """
-        query = (
-            select(
-                ScoreReview,
-                ExamScore.score,
-                Candidate.candidate_name,
-                Candidate.candidate_code,
-                Exam.exam_name,
-                Subject.subject_name,
-                ExamSubject.max_score
-            )
-            .join(ExamScore, ScoreReview.score_id == ExamScore.score_id)
-            .join(CandidateExam, ExamScore.candidate_exam_id == CandidateExam.candidate_exam_id)
-            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
+        # First, get all the score IDs related to this candidate
+        score_ids_query = (
+            select(ExamScore.score_id)
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
             .join(Exam, ExamSubject.exam_id == Exam.exam_id)
-            .join(Subject, ExamSubject.subject_id == Subject.subject_id)
-            .filter(CandidateExam.candidate_id == candidate_id)
+            .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
+            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
+            .filter(Candidate.candidate_id == candidate_id)
         )
         
-        result = await self.db.execute(query)
+        score_ids_result = await self.db.execute(score_ids_query)
+        score_ids = [row[0] for row in score_ids_result.all()]
         
-        score_reviews = []
-        for review, current_score, candidate_name, candidate_code, exam_name, subject_name, max_score in result:
-            # Get requested_by and assigned_to names if available
-            requested_by_name = None
-            assigned_to_name = None
-            
-            if review.requested_by:
-                requester_query = select(User.name).filter(User.user_id == review.requested_by)
-                requester_result = await self.db.execute(requester_query)
-                requested_by_name = requester_result.scalar_one_or_none()
-            
-            if review.assigned_to:
-                assignee_query = select(User.name).filter(User.user_id == review.assigned_to)
-                assignee_result = await self.db.execute(assignee_query)
-                assigned_to_name = assignee_result.scalar_one_or_none()
-            
-            score_review_dict = {
-                "review_id": review.review_id,
-                "score_id": review.score_id,
-                "requested_by": review.requested_by,
-                "reason": review.reason,
-                "expected_score": review.expected_score,
-                "status": review.status,
-                "priority": review.priority,
-                "assigned_to": review.assigned_to,
-                "resolution_notes": review.resolution_notes,
-                "resolved_at": review.resolved_at,
-                "metadata": review.metadata,
-                "created_at": review.created_at,
-                "updated_at": review.updated_at,
-                "candidate_name": candidate_name,
-                "candidate_code": candidate_code,
-                "exam_name": exam_name,
-                "subject_name": subject_name,
-                "current_score": current_score,
-                "max_score": max_score,
-                "requested_by_name": requested_by_name,
-                "assigned_to_name": assigned_to_name
-            }
-            score_reviews.append(score_review_dict)
+        if not score_ids:
+            return []
         
-        return score_reviews
+        # Then get all reviews for these scores
+        reviews_query = (
+            select(ScoreReview)
+            .options(joinedload(ScoreReview.score))
+            .filter(ScoreReview.score_id.in_(score_ids))
+            .order_by(ScoreReview.created_at.desc())
+        )
+        
+        reviews_result = await self.db.execute(reviews_query)
+        reviews = reviews_result.scalars().all()
+        
+        # Process each review to add the related data
+        processed_reviews = []
+        for review in reviews:
+            # Get the exam, subject, and candidate data for this review
+            if review.score:
+                # Get exam information
+                exam_query = select(Exam).join(
+                    ExamSubject, Exam.exam_id == ExamSubject.exam_id
+                ).join(
+                    ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
+                ).filter(
+                    ExamScore.score_id == review.score_id
+                )
+                exam_result = await self.db.execute(exam_query)
+                exam = exam_result.scalar_one_or_none()
+                
+                # Get subject information
+                subject_query = select(Subject).join(
+                    ExamSubject, Subject.subject_id == ExamSubject.subject_id
+                ).join(
+                    ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
+                ).filter(
+                    ExamScore.score_id == review.score_id
+                )
+                subject_result = await self.db.execute(subject_query)
+                subject = subject_result.scalar_one_or_none()
+                
+                # Get candidate information (we already know the candidate_id)
+                candidate_query = select(Candidate).filter(Candidate.candidate_id == candidate_id)
+                candidate_result = await self.db.execute(candidate_query)
+                candidate = candidate_result.scalar_one_or_none()
+                
+                # Attach the related entities to the score
+                review.score._exam = exam
+                review.score._subject = subject
+                review.score._candidate = candidate
+            
+            processed_reviews.append(self._entity_to_dict(review))
+        
+        return processed_reviews
     
     async def create(self, review_data: Dict[str, Any]) -> ScoreReview:
         """
@@ -567,6 +391,11 @@ class ScoreReviewRepository:
         Returns:
             The created score review
         """
+        # Ensure score_review_id is set before creating the object
+        if "score_review_id" not in review_data or not review_data["score_review_id"]:
+            from app.services.id_service import generate_model_id
+            review_data["score_review_id"] = generate_model_id("ScoreReview")
+        
         # Create a new score review
         new_review = ScoreReview(**review_data)
         
@@ -575,22 +404,22 @@ class ScoreReviewRepository:
         await self.db.commit()
         await self.db.refresh(new_review)
         
-        logger.info(f"Created score review with ID: {new_review.review_id}")
+        logger.info(f"Created score review with ID: {new_review.score_review_id}")
         return new_review
     
-    async def update(self, review_id: str, review_data: Dict[str, Any]) -> Optional[ScoreReview]:
+    async def update(self, score_review_id: str, review_data: Dict[str, Any]) -> Optional[ScoreReview]:
         """
         Update a score review.
         
         Args:
-            review_id: The unique identifier of the score review
+            score_review_id: The unique identifier of the score review
             review_data: Dictionary containing the updated data
             
         Returns:
             The updated score review if found, None otherwise
         """
         # Get the raw ScoreReview object first
-        query = select(ScoreReview).filter(ScoreReview.review_id == review_id)
+        query = select(ScoreReview).filter(ScoreReview.score_review_id == score_review_id)
         result = await self.db.execute(query)
         existing_review = result.scalar_one_or_none()
         
@@ -600,7 +429,7 @@ class ScoreReviewRepository:
         # Update the score review
         update_stmt = (
             update(ScoreReview)
-            .where(ScoreReview.review_id == review_id)
+            .where(ScoreReview.score_review_id == score_review_id)
             .values(**review_data)
             .returning(ScoreReview)
         )
@@ -609,22 +438,22 @@ class ScoreReviewRepository:
         
         updated_review = result.scalar_one_or_none()
         if updated_review:
-            logger.info(f"Updated score review with ID: {review_id}")
+            logger.info(f"Updated score review with ID: {score_review_id}")
         
         return updated_review
     
-    async def delete(self, review_id: str) -> bool:
+    async def delete(self, score_review_id: str) -> bool:
         """
         Delete a score review.
         
         Args:
-            review_id: The unique identifier of the score review
+            score_review_id: The unique identifier of the score review
             
         Returns:
             True if the score review was deleted, False otherwise
         """
         # Check if the score review exists
-        query = select(ScoreReview).filter(ScoreReview.review_id == review_id)
+        query = select(ScoreReview).filter(ScoreReview.score_review_id == score_review_id)
         result = await self.db.execute(query)
         existing_review = result.scalar_one_or_none()
         
@@ -632,9 +461,74 @@ class ScoreReviewRepository:
             return False
         
         # Delete the score review
-        delete_stmt = delete(ScoreReview).where(ScoreReview.review_id == review_id)
+        delete_stmt = delete(ScoreReview).where(ScoreReview.score_review_id == score_review_id)
         await self.db.execute(delete_stmt)
         await self.db.commit()
         
-        logger.info(f"Deleted score review with ID: {review_id}")
+        logger.info(f"Deleted score review with ID: {score_review_id}")
         return True 
+    
+    def _entity_to_dict(self, review: ScoreReview) -> Dict:
+        """
+        Convert ScoreReview entity to dictionary with full relationship details.
+        
+        Args:
+            review: ScoreReview entity
+            
+        Returns:
+            Dictionary with ScoreReview data
+        """
+        review_dict = {
+            "score_review_id": review.score_review_id,
+            "score_id": review.score_id,
+            "request_date": review.request_date.isoformat() if review.request_date else None,
+            "review_status": review.review_status,
+            "original_score": float(review.original_score) if review.original_score is not None else None,
+            "reviewed_score": float(review.reviewed_score) if review.reviewed_score is not None else None,
+            "review_result": review.review_result,
+            "review_date": review.review_date.isoformat() if review.review_date else None,
+            "additional_info": review.additional_info,
+            "score_review_metadata": review.score_review_metadata,
+            "created_at": review.created_at.isoformat() if review.created_at else None,
+            "updated_at": review.updated_at.isoformat() if review.updated_at else None
+        }
+        
+        # Add exam score details if loaded
+        if review.score:
+            score = review.score
+            review_dict["exam_score"] = {
+                "score_id": getattr(score, 'exam_score_id', None),
+                "candidate_id": getattr(getattr(score, '_candidate', None), 'candidate_id', None),
+                "exam_id": getattr(getattr(score, '_exam', None), 'exam_id', None),
+                "subject_id": getattr(getattr(score, '_subject', None), 'subject_id', None),
+                "score": float(score.score) if hasattr(score, 'score') and score.score is not None else None,
+                "scoring_date": score.scoring_date.isoformat() if hasattr(score, 'scoring_date') and score.scoring_date else None,
+                "status": score.status if hasattr(score, 'status') else None
+            }
+            
+            # Add candidate details if loaded
+            if hasattr(score, '_candidate') and score._candidate:
+                candidate = score._candidate
+                review_dict["candidate"] = {
+                    "candidate_id": candidate.candidate_id,
+                    "name": candidate.full_name
+                }
+            
+            # Add exam details if loaded
+            if hasattr(score, '_exam') and score._exam:
+                exam = score._exam
+                review_dict["exam"] = {
+                    "exam_id": exam.exam_id,
+                    "name": exam.exam_name
+                }
+            
+            # Add subject details if loaded
+            if hasattr(score, '_subject') and score._subject:
+                subject = score._subject
+                review_dict["subject"] = {
+                    "subject_id": subject.subject_id,
+                    "subject_code": subject.subject_code,
+                    "name": subject.name
+                }
+        
+        return review_dict 

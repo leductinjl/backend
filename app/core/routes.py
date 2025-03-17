@@ -72,7 +72,7 @@ def setup_routes(app: FastAPI):
         (score_review_router, "Score Reviews"),
         (exam_score_history_router, "Exam Score Histories"),
         (certificate_router, "Certificates"),
-        (exam_attempt_history_router, "Exam Attempt Histories")
+        (exam_attempt_history_router, "Attempt Histories")
     ]
 
     # Register all routers using the list of tuples

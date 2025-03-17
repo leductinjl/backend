@@ -21,8 +21,8 @@ from app.repositories.exam_score_repository import ExamScoreRepository
 from app.services.exam_score_history_service import ExamScoreHistoryService
 
 router = APIRouter(
-    prefix="/exam-score-history",
-    tags=["Exam Score History"],
+    prefix="/exam-score-histories",
+    tags=["Exam Score Histories"],
     responses={404: {"description": "Not found"}}
 )
 
