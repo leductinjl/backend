@@ -161,6 +161,81 @@ class DegreeRepository:
             self.logger.error(f"Error getting degrees for major {major_id}: {e}")
             raise
     
+    async def get_by_candidate(self, candidate_id: str, skip: int = 0, limit: int = 100) -> Tuple[List[Degree], int]:
+        """
+        Get all degrees for a specific candidate through education history
+        
+        Args:
+            candidate_id: ID of the candidate
+            skip: Number of records to skip (for pagination)
+            limit: Maximum number of records to return
+            
+        Returns:
+            Tuple containing list of degrees and total count
+        """
+        try:
+            # First get education histories for this candidate at university/postgraduate level
+            education_query = (
+                select(EducationHistory)
+                .join(EducationLevel, EducationHistory.education_level_id == EducationLevel.education_level_id)
+                .where(
+                    and_(
+                        EducationHistory.candidate_id == candidate_id,
+                        EducationLevel.code.in_(['UNIVERSITY', 'POSTGRADUATE'])
+                    )
+                )
+            )
+            
+            education_result = await self.db_session.execute(education_query)
+            education_histories = education_result.scalars().all()
+            
+            if not education_histories:
+                return [], 0
+                
+            # Get degrees that match with these education histories by major and time period
+            degrees = []
+            all_degree_ids = set()
+            
+            for history in education_histories:
+                # Get degrees that might match this education history
+                degree_query = (
+                    select(Degree)
+                    .join(Major, Degree.major_id == Major.major_id)
+                    .options(joinedload(Degree.major))
+                    .where(
+                        and_(
+                            # Match time periods if available
+                            (Degree.start_year >= history.start_year) if history.start_year and Degree.start_year else True,
+                            (Degree.end_year <= history.end_year) if history.end_year and Degree.end_year else True
+                            # Could add more conditions like matching by school or specific major criteria
+                        )
+                    )
+                )
+                
+                degree_result = await self.db_session.execute(degree_query)
+                matching_degrees = degree_result.scalars().all()
+                
+                for degree in matching_degrees:
+                    if degree.degree_id not in all_degree_ids:
+                        # Attach candidate information to each degree
+                        from types import SimpleNamespace
+                        degree.candidate = SimpleNamespace(
+                            candidate_id=candidate_id,
+                            full_name=None  # Will be filled in the service layer
+                        )
+                        
+                        degrees.append(degree)
+                        all_degree_ids.add(degree.degree_id)
+            
+            # Apply pagination
+            total = len(degrees)
+            paginated_degrees = degrees[skip:skip+limit]
+            
+            return paginated_degrees, total
+        except Exception as e:
+            self.logger.error(f"Error getting degrees for candidate {candidate_id}: {e}")
+            raise
+    
     async def create(self, degree_data: Dict[str, Any]) -> Degree:
         """
         Create a new degree

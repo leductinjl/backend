@@ -110,6 +110,58 @@ class DegreeService:
             self.logger.error(f"Error getting degrees for major {major_id}: {e}")
             raise
     
+    async def get_degrees_by_candidate(self, candidate_id: str, skip: int = 0, limit: int = 100) -> Dict[str, Any]:
+        """
+        Get all degrees for a specific candidate
+        
+        Args:
+            candidate_id: ID of the candidate
+            skip: Number of records to skip (for pagination)
+            limit: Maximum number of records to return
+            
+        Returns:
+            Dictionary containing list of degree details and pagination metadata
+        """
+        try:
+            degrees, total = await self.degree_repo.get_by_candidate(candidate_id, skip, limit)
+            
+            # Calculate pagination metadata
+            page = skip // limit + 1 if limit else 1
+            
+            # Get candidate name if degrees were found
+            candidate_name = None
+            if degrees and len(degrees) > 0:
+                # Query the candidate name if needed
+                from sqlalchemy import select
+                from app.domain.models.candidate import Candidate
+                
+                query = select(Candidate.full_name).where(Candidate.candidate_id == candidate_id)
+                result = await self.degree_repo.db_session.execute(query)
+                candidate_name = result.scalar()
+            
+            # Serialize degrees and add candidate name
+            serialized_degrees = []
+            for degree in degrees:
+                degree_dict = self._serialize_degree(degree)
+                # Set candidate name if needed and not already set
+                if candidate_name and (not "candidate_name" in degree_dict or not degree_dict["candidate_name"]):
+                    degree_dict["candidate_name"] = candidate_name
+                    
+                serialized_degrees.append(degree_dict)
+            
+            # Return with pagination data
+            return {
+                "items": serialized_degrees,
+                "total": total,
+                "page": page,
+                "size": limit,
+                "candidate_id": candidate_id,
+                "candidate_name": candidate_name
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting degrees for candidate {candidate_id}: {e}")
+            raise
+    
     async def create_degree(self, degree_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create a new degree

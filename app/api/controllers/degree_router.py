@@ -135,6 +135,35 @@ async def get_degrees_by_major(
             detail=f"An error occurred while retrieving degrees for major {major_id}: {str(e)}"
         )
 
+@router.get("/candidate/{candidate_id}", response_model=DegreeListResponse, summary="Get Degrees by Candidate")
+async def get_degrees_by_candidate(
+    candidate_id: str = Path(..., description="ID of the candidate"),
+    skip: int = Query(0, ge=0, description="Number of records to skip (for pagination)"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
+    service: DegreeService = Depends(get_degree_service)
+):
+    """
+    Get all degrees for a specific candidate.
+    
+    This endpoint returns all degrees associated with a specific candidate based on their education history.
+    
+    Args:
+        candidate_id: ID of the candidate
+        skip: Number of records to skip (for pagination)
+        limit: Maximum number of records to return
+        service: DegreeService (injected)
+        
+    Returns:
+        List of degrees for the specified candidate with pagination metadata
+    """
+    try:
+        return await service.get_degrees_by_candidate(candidate_id, skip, limit)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while retrieving degrees for candidate {candidate_id}: {str(e)}"
+        )
+
 @router.post("/", response_model=DegreeResponse, status_code=status.HTTP_201_CREATED, summary="Create Degree")
 async def create_degree(
     degree_data: DegreeCreate = Body(..., description="Degree information to create"),

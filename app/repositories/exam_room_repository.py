@@ -231,6 +231,8 @@ class ExamRoomRepository:
                 "location_id": room.location_id,
                 "location_name": location_name,
                 "room_metadata": room.room_metadata,
+                "created_at": room.created_at,
+                "updated_at": room.updated_at,
                 "exam_id": exam_id  # Include the requested exam_id for reference
             }
             rooms.append(room_dict)

@@ -27,3 +27,4 @@ from app.domain.models.recognition import Recognition
 from app.domain.models.award import Award
 from app.domain.models.achievement import Achievement
 from app.domain.models.user import User 
+from app.domain.models.invitation import Invitation

@@ -144,7 +144,9 @@ class EducationHistoryRepository:
             
             # Query with pagination
             query = select(EducationHistory).options(
-                joinedload(EducationHistory.school)
+                joinedload(EducationHistory.school),
+                joinedload(EducationHistory.candidate),
+                joinedload(EducationHistory.education_level)
             ).where(
                 EducationHistory.candidate_id == candidate_id
             ).offset(skip).limit(limit)

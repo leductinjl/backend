@@ -249,11 +249,23 @@ class EducationHistoryService:
             "additional_info": education_history.additional_info,
             "created_at": education_history.created_at,
             "updated_at": education_history.updated_at,
-            
-            # Add related data if available
-            "candidate_name": getattr(education_history.candidate, "full_name", None) if hasattr(education_history, "candidate") and education_history.candidate else None,
-            "school_name": getattr(education_history.school, "school_name", None) if hasattr(education_history, "school") and education_history.school else None,
-            "education_level_name": getattr(education_history.education_level, "name", None) if hasattr(education_history, "education_level") and education_history.education_level else None,
         }
+        
+        # Add related data if available and already loaded
+            # Kiểm tra xem các mối quan hệ đã được load chưa để tránh truy cập ngầm định
+        if hasattr(education_history, "candidate") and education_history.candidate is not None:
+            data["candidate_name"] = education_history.candidate.full_name
+        else:
+            data["candidate_name"] = None
+            
+        if hasattr(education_history, "school") and education_history.school is not None:
+            data["school_name"] = education_history.school.school_name
+        else:
+            data["school_name"] = None
+            
+        if hasattr(education_history, "education_level") and education_history.education_level is not None:
+            data["education_level_name"] = education_history.education_level.name
+        else:
+            data["education_level_name"] = None
         
         return data 
