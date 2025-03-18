@@ -35,14 +35,10 @@ from app.api.controllers.recognition_router import router as recognition_router
 from app.api.controllers.award_router import router as award_router
 from app.api.controllers.achievement_router import router as achievement_router
 
-# Special imports
-from app.api.controllers.admin_auth import router as admin_auth_router
-
 # Export all routers
 __all__ = [
     'candidate_router',
     'admin_router',
-    'admin_auth_router',
     'health_router',
     'management_unit_router',
     'school_router',

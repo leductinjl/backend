@@ -7,10 +7,12 @@ require admin authentication.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 import uuid
 from datetime import datetime, timedelta
+import pytz
 
 from app.infrastructure.database.connection import get_db
 from app.infrastructure.ontology.neo4j_connection import get_neo4j
@@ -25,9 +27,9 @@ from app.api.dto.candidate import (
     CandidateResponse, 
     CandidateDetailResponse
 )
-from app.api.dto.admin import AdminRegisterRequest
-# Import auth router
-from app.api.controllers.admin_auth import router as auth_router
+from app.api.dto.admin import AdminRegisterRequest, AdminLoginResponse
+# Import auth functions
+from app.api.controllers.admin_auth import admin_login, admin_register
 from app.domain.models.invitation import Invitation
 
 # Create main admin router
@@ -37,8 +39,32 @@ router = APIRouter(
     responses={404: {"description": "Not found"}}
 )
 
-# Include the auth router
-router.include_router(auth_router, tags=["Admin Authentication"])
+# Add authentication endpoints directly
+@router.post("/register", response_model=AdminLoginResponse, summary="Admin Registration")
+async def register_endpoint(
+    register_data: AdminRegisterRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Register a new admin user.
+    
+    This endpoint creates a new admin user in the system with the provided
+    credentials and returns an access token. Requires a valid invitation code.
+    """
+    return await admin_register(register_data, db)
+
+@router.post("/login", response_model=AdminLoginResponse, summary="Admin Login")
+async def login_endpoint(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Authenticate an admin user.
+    
+    This endpoint authenticates admin credentials against the database
+    and returns an access token if valid.
+    """
+    return await admin_login(form_data, db)
 
 # Dependency to check if user is authenticated as admin
 async def get_current_admin(request: Request):
@@ -205,7 +231,7 @@ async def generate_invitation(
     invitation_code = str(uuid.uuid4())[:8].upper()
     
     # Calculate expiration date
-    expires_at = datetime.utcnow() + timedelta(days=expiration_days)
+    expires_at = datetime.now(pytz.UTC) + timedelta(days=expiration_days)
     
     # Create invitation
     new_invitation = Invitation(
@@ -247,8 +273,11 @@ async def list_invitations(
     Returns:
         list: List of invitation codes
     """
-    # Query all invitations
-    result = await db.execute(db.query(Invitation).order_by(Invitation.created_at.desc()))
+    # Query all invitations using SQLAlchemy 2.0 syntax
+    from sqlalchemy import select, desc
+    result = await db.execute(
+        select(Invitation).order_by(desc(Invitation.created_at))
+    )
     invitations = result.scalars().all()
     
     # Format and return results

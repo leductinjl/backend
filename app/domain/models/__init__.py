@@ -28,3 +28,10 @@ from app.domain.models.award import Award
 from app.domain.models.achievement import Achievement
 from app.domain.models.user import User 
 from app.domain.models.invitation import Invitation
+
+# Add new security models
+from app.domain.models.role import Role
+from app.domain.models.permission import Permission
+from app.domain.models.role_permission import RolePermission
+from app.domain.models.security_log import SecurityLog
+from app.domain.models.two_factor_backup import TwoFactorBackup

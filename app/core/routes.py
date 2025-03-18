@@ -7,7 +7,39 @@ organizing them by domain and ensuring consistent URL prefixes.
 
 from fastapi import FastAPI
 from app.config import settings
-from app.api.controllers import *
+import logging
+
+# Explicit imports for clarity and to avoid importing any unintended routers
+from app.api.controllers.candidate_router import router as candidate_router
+from app.api.controllers.admin_router import router as admin_router
+from app.api.controllers.health_router import router as health_router
+from app.api.controllers.management_unit_router import router as management_unit_router
+from app.api.controllers.school_router import router as school_router
+from app.api.controllers.major_router import router as major_router
+from app.api.controllers.subject_router import router as subject_router
+from app.api.controllers.exam_type_router import router as exam_type_router
+from app.api.controllers.school_major_router import router as school_major_router
+from app.api.controllers.exam_router import router as exam_router
+from app.api.controllers.exam_location_router import router as exam_location_router
+from app.api.controllers.exam_room_router import router as exam_room_router
+from app.api.controllers.exam_location_mapping_router import router as exam_location_mapping_router
+from app.api.controllers.exam_subject_router import router as exam_subject_router
+from app.api.controllers.exam_schedule_router import router as exam_schedule_router
+from app.api.controllers.candidate_exam_router import router as candidate_exam_router
+from app.api.controllers.candidate_credential_router import router as candidate_credential_router
+from app.api.controllers.exam_score_router import router as exam_score_router
+from app.api.controllers.score_review_router import router as score_review_router
+from app.api.controllers.exam_score_history_router import router as exam_score_history_router
+from app.api.controllers.certificate_router import router as certificate_router
+from app.api.controllers.exam_attempt_history_router import router as exam_attempt_history_router
+from app.api.controllers.degree_router import router as degree_router
+from app.api.controllers.education_history_router import router as education_history_router
+from app.api.controllers.education_level_router import router as education_level_router
+from app.api.controllers.recognition_router import router as recognition_router
+from app.api.controllers.award_router import router as award_router
+from app.api.controllers.achievement_router import router as achievement_router
+
+logger = logging.getLogger("api")
 
 def register_router(app, router, tag_name):
     """
@@ -18,6 +50,7 @@ def register_router(app, router, tag_name):
         router: The router to register
         tag_name: The tag name for OpenAPI documentation
     """
+    logger.info(f"Registering router with tag: {tag_name}")
     app.include_router(
         router,
         prefix=f"{settings.API_PREFIX}",
