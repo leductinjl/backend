@@ -17,6 +17,7 @@ from app.infrastructure.database.connection import get_db
 from app.config import settings
 from app.api.dto.admin import AdminLoginRequest, AdminLoginResponse, AdminTokenData, AdminRegisterRequest
 from app.domain.models.user import User
+from app.domain.models.invitation import Invitation
 from app.services.id_service import generate_model_id
 
 router = APIRouter()
@@ -88,7 +89,7 @@ async def admin_register(
     Register a new admin user.
     
     This endpoint creates a new admin user in the system with the provided
-    credentials and returns an access token.
+    credentials and returns an access token. Requires a valid invitation code.
     
     Args:
         register_data: Registration information
@@ -98,16 +99,45 @@ async def admin_register(
         AdminLoginResponse: Login response with access token
         
     Raises:
-        HTTPException: If email already exists
+        HTTPException: If email already exists or invitation code is invalid
     """
     # Check if email already exists
-    result = await db.execute(
+    user_result = await db.execute(
         db.query(User).filter(User.email == register_data.email)
     )
-    if result.scalar_one_or_none():
+    if user_result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
+        )
+    
+    # Validate invitation code
+    invitation_result = await db.execute(
+        db.query(Invitation).filter(
+            Invitation.code == register_data.invitation_code,
+            Invitation.is_used == False
+        )
+    )
+    invitation = invitation_result.scalar_one_or_none()
+    
+    if not invitation:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or already used invitation code"
+        )
+    
+    # Check if invitation has expired
+    if invitation.expires_at and invitation.expires_at < datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invitation code has expired"
+        )
+    
+    # Check if invitation is restricted to specific email
+    if invitation.email and invitation.email != register_data.email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This invitation code is not valid for your email"
         )
     
     # Create new user
@@ -120,7 +150,14 @@ async def admin_register(
         is_active=True
     )
     
+    # Mark invitation as used
+    invitation.is_used = True
+    invitation.used_by = new_user.user_id
+    invitation.used_at = datetime.utcnow()
+    
+    # Save changes to database
     db.add(new_user)
+    db.add(invitation)
     await db.commit()
     await db.refresh(new_user)
     
