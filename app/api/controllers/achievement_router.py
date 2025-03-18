@@ -11,14 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date
 
 from app.infrastructure.database.connection import get_db
+from app.repositories.achievement_repository import AchievementRepository
+from app.repositories.candidate_exam_repository import CandidateExamRepository
+from app.services.achievement_service import AchievementService
 from app.api.dto.achievement import (
     AchievementCreate,
     AchievementUpdate,
     AchievementResponse,
     AchievementListResponse
 )
-from app.repositories.achievement_repository import AchievementRepository
-from app.services.achievement_service import AchievementService
 
 router = APIRouter(
     prefix="/achievements",
@@ -36,8 +37,9 @@ async def get_achievement_service(db: AsyncSession = Depends(get_db)):
     Returns:
         AchievementService: Service instance for achievement business logic
     """
-    repository = AchievementRepository(db)
-    return AchievementService(repository)
+    achievement_repository = AchievementRepository(db)
+    candidate_exam_repository = CandidateExamRepository(db)
+    return AchievementService(achievement_repository, candidate_exam_repository)
 
 @router.get("/", response_model=AchievementListResponse, summary="List Achievements")
 async def get_achievements(
@@ -153,6 +155,35 @@ async def get_achievements_by_candidate_exam(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred while retrieving achievements for candidate exam {candidate_exam_id}: {str(e)}"
+        )
+
+@router.get("/candidate/{candidate_id}", response_model=AchievementListResponse, summary="Get Achievements by Candidate")
+async def get_achievements_by_candidate(
+    candidate_id: str = Path(..., description="ID of the candidate"),
+    skip: int = Query(0, ge=0, description="Number of records to skip (for pagination)"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
+    service: AchievementService = Depends(get_achievement_service)
+):
+    """
+    Get all achievements for a specific candidate across all exams.
+    
+    This endpoint returns all achievements associated with a specific candidate across all exams.
+    
+    Args:
+        candidate_id: ID of the candidate
+        skip: Number of records to skip (for pagination)
+        limit: Maximum number of records to return
+        service: AchievementService (injected)
+        
+    Returns:
+        List of achievements for the specified candidate with pagination metadata
+    """
+    try:
+        return await service.get_achievements_by_candidate_id(candidate_id, skip, limit)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while retrieving achievements for candidate {candidate_id}: {str(e)}"
         )
 
 @router.get("/type/{achievement_type}", response_model=AchievementListResponse, summary="Get Achievements by Type")

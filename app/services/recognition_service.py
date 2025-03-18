@@ -6,6 +6,7 @@ using the repository layer for data access.
 """
 
 from app.repositories.recognition_repository import RecognitionRepository
+from app.repositories.candidate_exam_repository import CandidateExamRepository
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import date
 import logging
@@ -15,14 +16,20 @@ class RecognitionService:
     Service for handling business logic related to recognitions
     """
     
-    def __init__(self, recognition_repo: RecognitionRepository):
+    def __init__(
+        self, 
+        recognition_repo: RecognitionRepository,
+        candidate_exam_repo: Optional[CandidateExamRepository] = None
+    ):
         """
         Initialize Recognition Service
         
         Args:
             recognition_repo: Repository for interacting with recognition data
+            candidate_exam_repo: Repository for interacting with candidate exam data
         """
         self.recognition_repo = recognition_repo
+        self.candidate_exam_repo = candidate_exam_repo
         self.logger = logging.getLogger(__name__)
     
     async def get_all_recognitions(
@@ -172,6 +179,79 @@ class RecognitionService:
             self.logger.error(f"Error getting recognitions for organization {organization}: {e}")
             raise
     
+    async def get_recognitions_by_candidate_id(
+        self, 
+        candidate_id: str, 
+        skip: int = 0, 
+        limit: int = 100
+    ) -> Dict[str, Any]:
+        """
+        Get all recognitions for a specific candidate across all exams
+        
+        Args:
+            candidate_id: ID of the candidate
+            skip: Number of records to skip (for pagination)
+            limit: Maximum number of records to return
+            
+        Returns:
+            Dictionary containing list of recognitions and pagination metadata
+        """
+        try:
+            # Verify that we have the required repository
+            if not self.candidate_exam_repo:
+                self.logger.error("Cannot get recognitions by candidate ID: candidate_exam_repo not provided")
+                return {
+                    "items": [],
+                    "total": 0,
+                    "page": 1,
+                    "size": limit
+                }
+            
+            # Get all candidate-exam registrations for this candidate
+            candidate_exams = await self.candidate_exam_repo.get_by_candidate_id(candidate_id)
+            
+            # No registrations found
+            if not candidate_exams:
+                self.logger.info(f"No exam registrations found for candidate ID {candidate_id}")
+                return {
+                    "items": [],
+                    "total": 0,
+                    "page": 1,
+                    "size": limit
+                }
+            
+            # Collect all recognitions from all candidate-exam registrations
+            all_recognitions = []
+            total_count = 0
+            
+            for candidate_exam in candidate_exams:
+                recognitions, count = await self.recognition_repo.get_by_candidate_exam(
+                    candidate_exam["candidate_exam_id"], 0, 1000  # Get all recognitions
+                )
+                
+                for recognition in recognitions:
+                    # Add exam name to the recognition for context
+                    serialized_recognition = self._serialize_recognition(recognition)
+                    serialized_recognition["exam_name"] = candidate_exam.get("exam_name", "Unknown Exam")
+                    all_recognitions.append(serialized_recognition)
+                
+                total_count += count
+            
+            # Apply pagination to the combined result
+            start_idx = skip
+            end_idx = min(skip + limit, len(all_recognitions))
+            paginated_recognitions = all_recognitions[start_idx:end_idx] if start_idx < len(all_recognitions) else []
+            
+            return {
+                "items": paginated_recognitions,
+                "total": total_count,
+                "page": skip // limit + 1 if limit > 0 else 1,
+                "size": limit
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting recognitions for candidate {candidate_id}: {e}")
+            raise
+    
     async def create_recognition(self, recognition_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create a new recognition
@@ -284,11 +364,26 @@ class RecognitionService:
         
         # Safely add candidate name and exam name if available
         try:
-            if hasattr(recognition, 'candidate_exam') and recognition.candidate_exam:
-                if hasattr(recognition.candidate_exam, 'candidate') and recognition.candidate_exam.candidate:
-                    data["candidate_name"] = recognition.candidate_exam.candidate.full_name
+            # Debug log to check relationship structure
+            self.logger.debug(f"Recognition: {recognition.recognition_id}")
+            self.logger.debug(f"Has candidate_exam: {hasattr(recognition, 'candidate_exam')}")
+            
+            if hasattr(recognition, 'candidate_exam') and recognition.candidate_exam is not None:
+                self.logger.debug(f"CandidateExam ID: {recognition.candidate_exam.candidate_exam_id}")
+                self.logger.debug(f"Has candidate: {hasattr(recognition.candidate_exam, 'candidate')}")
                 
-                if hasattr(recognition.candidate_exam, 'exam') and recognition.candidate_exam.exam:
+                if hasattr(recognition.candidate_exam, 'candidate') and recognition.candidate_exam.candidate is not None:
+                    candidate = recognition.candidate_exam.candidate
+                    self.logger.debug(f"Candidate ID: {candidate.candidate_id}")
+                    self.logger.debug(f"Has full_name: {hasattr(candidate, 'full_name')}")
+                    
+                    data["candidate_name"] = candidate.full_name
+                
+                if hasattr(recognition.candidate_exam, 'exam') and recognition.candidate_exam.exam is not None:
+                    self.logger.debug(f"Has exam: {hasattr(recognition.candidate_exam, 'exam')}")
+                    self.logger.debug(f"Exam ID: {recognition.candidate_exam.exam.exam_id}")
+                    self.logger.debug(f"Has exam_name: {hasattr(recognition.candidate_exam.exam, 'exam_name')}")
+                    
                     data["exam_name"] = recognition.candidate_exam.exam.exam_name
         except Exception as e:
             # Log but don't fail if there's an issue accessing relationships

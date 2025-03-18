@@ -144,6 +144,24 @@ async def get_certificates_by_candidate_exam(
     certificates = await service.get_certificates_by_candidate_exam_id(candidate_exam_id)
     return certificates
 
+@router.get("/candidate/{candidate_id}", response_model=List[CertificateDetailResponse], summary="Get Certificates by Candidate ID")
+async def get_certificates_by_candidate(
+    candidate_id: str = Path(..., description="The ID of the candidate"),
+    service: CertificateService = Depends(get_certificate_service)
+):
+    """
+    Retrieve all certificates for a specific candidate across all exams.
+    
+    Args:
+        candidate_id: The ID of the candidate
+        service: CertificateService instance
+        
+    Returns:
+        List of certificates for the specified candidate across all exams
+    """
+    certificates = await service.get_certificates_by_candidate_id(candidate_id)
+    return certificates
+
 @router.post(
     "/", 
     response_model=CertificateDetailResponse, 

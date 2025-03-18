@@ -108,6 +108,40 @@ class CertificateService:
         """
         return await self.repository.get_by_candidate_exam_id(candidate_exam_id)
     
+    async def get_certificates_by_candidate_id(self, candidate_id: str) -> List[Dict]:
+        """
+        Get all certificates for a specific candidate across all exams.
+        
+        Args:
+            candidate_id: The ID of the candidate
+            
+        Returns:
+            List of certificates for the specified candidate
+        """
+        # Verify that we have the required repository
+        if not self.candidate_exam_repository:
+            logger.error("Cannot get certificates by candidate ID: candidate_exam_repository not provided")
+            return []
+        
+        # Get all candidate-exam registrations for this candidate
+        candidate_exams = await self.candidate_exam_repository.get_by_candidate_id(candidate_id)
+        
+        # No registrations found
+        if not candidate_exams:
+            logger.info(f"No exam registrations found for candidate ID {candidate_id}")
+            return []
+        
+        # Collect all certificates from all candidate-exam registrations
+        all_certificates = []
+        for candidate_exam in candidate_exams:
+            certificates = await self.repository.get_by_candidate_exam_id(candidate_exam["candidate_exam_id"])
+            for certificate in certificates:
+                # Add exam name to the certificate for context
+                certificate["exam_name"] = candidate_exam.get("exam_name", "Unknown Exam")
+            all_certificates.extend(certificates)
+        
+        return all_certificates
+    
     async def get_certificate_by_number(self, certificate_number: str) -> Optional[Dict]:
         """
         Get a certificate by its certificate number.

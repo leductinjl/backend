@@ -6,6 +6,7 @@ using the repository layer for data access.
 """
 
 from app.repositories.achievement_repository import AchievementRepository
+from app.repositories.candidate_exam_repository import CandidateExamRepository
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import date
 import logging
@@ -15,14 +16,20 @@ class AchievementService:
     Service for handling business logic related to achievements
     """
     
-    def __init__(self, achievement_repo: AchievementRepository):
+    def __init__(
+        self, 
+        achievement_repo: AchievementRepository,
+        candidate_exam_repo: Optional[CandidateExamRepository] = None
+    ):
         """
         Initialize Achievement Service
         
         Args:
             achievement_repo: Repository for interacting with achievement data
+            candidate_exam_repo: Repository for interacting with candidate exam data
         """
         self.achievement_repo = achievement_repo
+        self.candidate_exam_repo = candidate_exam_repo
         self.logger = logging.getLogger(__name__)
     
     async def get_all_achievements(
@@ -142,6 +149,79 @@ class AchievementService:
             }
         except Exception as e:
             self.logger.error(f"Error getting achievements for candidate exam {candidate_exam_id}: {e}")
+            raise
+    
+    async def get_achievements_by_candidate_id(
+        self, 
+        candidate_id: str, 
+        skip: int = 0, 
+        limit: int = 100
+    ) -> Dict[str, Any]:
+        """
+        Get all achievements for a specific candidate across all exams
+        
+        Args:
+            candidate_id: ID of the candidate
+            skip: Number of records to skip (for pagination)
+            limit: Maximum number of records to return
+            
+        Returns:
+            Dictionary containing list of achievements and pagination metadata
+        """
+        try:
+            # Verify that we have the required repository
+            if not self.candidate_exam_repo:
+                self.logger.error("Cannot get achievements by candidate ID: candidate_exam_repo not provided")
+                return {
+                    "items": [],
+                    "total": 0,
+                    "page": 1,
+                    "size": limit
+                }
+            
+            # Get all candidate-exam registrations for this candidate
+            candidate_exams = await self.candidate_exam_repo.get_by_candidate_id(candidate_id)
+            
+            # No registrations found
+            if not candidate_exams:
+                self.logger.info(f"No exam registrations found for candidate ID {candidate_id}")
+                return {
+                    "items": [],
+                    "total": 0,
+                    "page": 1,
+                    "size": limit
+                }
+            
+            # Collect all achievements from all candidate-exam registrations
+            all_achievements = []
+            total_count = 0
+            
+            for candidate_exam in candidate_exams:
+                achievements, count = await self.achievement_repo.get_by_candidate_exam(
+                    candidate_exam["candidate_exam_id"], 0, 1000  # Get all achievements
+                )
+                
+                for achievement in achievements:
+                    # Add exam name to the achievement for context
+                    serialized_achievement = self._serialize_achievement(achievement)
+                    serialized_achievement["exam_name"] = candidate_exam.get("exam_name", "Unknown Exam")
+                    all_achievements.append(serialized_achievement)
+                
+                total_count += count
+            
+            # Apply pagination to the combined result
+            start_idx = skip
+            end_idx = min(skip + limit, len(all_achievements))
+            paginated_achievements = all_achievements[start_idx:end_idx] if start_idx < len(all_achievements) else []
+            
+            return {
+                "items": paginated_achievements,
+                "total": total_count,
+                "page": skip // limit + 1 if limit > 0 else 1,
+                "size": limit
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting achievements for candidate {candidate_id}: {e}")
             raise
     
     async def get_achievements_by_achievement_type(

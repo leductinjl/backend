@@ -12,6 +12,8 @@ from sqlalchemy.orm import joinedload
 from typing import Optional, List, Dict, Any, Tuple
 from app.domain.models.recognition import Recognition
 from app.domain.models.candidate_exam import CandidateExam
+from app.domain.models.candidate import Candidate
+from app.domain.models.exam import Exam
 from datetime import date
 import logging
 from app.services.id_service import generate_model_id
@@ -55,6 +57,9 @@ class RecognitionRepository:
             # Build query
             query = select(Recognition).options(
                 joinedload(Recognition.candidate_exam)
+                .joinedload(CandidateExam.candidate),
+                joinedload(Recognition.candidate_exam)
+                .joinedload(CandidateExam.exam)
             )
             
             # Apply filters
@@ -104,20 +109,20 @@ class RecognitionRepository:
             recognition_id: ID of the recognition to retrieve
             
         Returns:
-            Recognition object or None if not found
+            Recognition object if found, None otherwise
         """
         try:
-            query = select(Recognition).where(
-                Recognition.recognition_id == recognition_id
-            ).options(
+            query = select(Recognition).options(
                 joinedload(Recognition.candidate_exam)
                 .joinedload(CandidateExam.candidate),
                 joinedload(Recognition.candidate_exam)
                 .joinedload(CandidateExam.exam)
-            )
+            ).where(Recognition.recognition_id == recognition_id)
             
             result = await self.db.execute(query)
-            return result.scalars().first()
+            recognition = result.scalars().first()
+            
+            return recognition
         
         except Exception as e:
             self.logger.error(f"Error in get_by_id: {e}")
@@ -130,7 +135,7 @@ class RecognitionRepository:
         limit: int = 100
     ) -> Tuple[List[Recognition], int]:
         """
-        Get recognitions for a specific candidate exam
+        Get all recognitions for a specific candidate exam
         
         Args:
             candidate_exam_id: ID of the candidate exam
@@ -142,11 +147,12 @@ class RecognitionRepository:
         """
         try:
             # Build query
-            query = select(Recognition).where(
-                Recognition.candidate_exam_id == candidate_exam_id
-            ).options(
+            query = select(Recognition).options(
                 joinedload(Recognition.candidate_exam)
-            )
+                .joinedload(CandidateExam.candidate),
+                joinedload(Recognition.candidate_exam)
+                .joinedload(CandidateExam.exam)
+            ).where(Recognition.candidate_exam_id == candidate_exam_id)
             
             # Count total
             count_query = select(func.count()).select_from(query.subquery())
@@ -172,7 +178,7 @@ class RecognitionRepository:
         limit: int = 100
     ) -> Tuple[List[Recognition], int]:
         """
-        Get recognitions issued by a specific organization
+        Get all recognitions issued by a specific organization
         
         Args:
             organization: Name of the issuing organization
@@ -184,11 +190,12 @@ class RecognitionRepository:
         """
         try:
             # Build query
-            query = select(Recognition).where(
-                Recognition.issuing_organization == organization
-            ).options(
+            query = select(Recognition).options(
                 joinedload(Recognition.candidate_exam)
-            )
+                .joinedload(CandidateExam.candidate),
+                joinedload(Recognition.candidate_exam)
+                .joinedload(CandidateExam.exam)
+            ).where(Recognition.issuing_organization == organization)
             
             # Count total
             count_query = select(func.count()).select_from(query.subquery())

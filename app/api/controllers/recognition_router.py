@@ -18,6 +18,7 @@ from app.api.dto.recognition import (
     RecognitionListResponse
 )
 from app.repositories.recognition_repository import RecognitionRepository
+from app.repositories.candidate_exam_repository import CandidateExamRepository
 from app.services.recognition_service import RecognitionService
 
 router = APIRouter(
@@ -36,8 +37,9 @@ async def get_recognition_service(db: AsyncSession = Depends(get_db)):
     Returns:
         RecognitionService: Service instance for recognition business logic
     """
-    repository = RecognitionRepository(db)
-    return RecognitionService(repository)
+    recognition_repository = RecognitionRepository(db)
+    candidate_exam_repository = CandidateExamRepository(db)
+    return RecognitionService(recognition_repository, candidate_exam_repository)
 
 @router.get("/", response_model=RecognitionListResponse, summary="List Recognitions")
 async def get_recognitions(
@@ -147,6 +149,35 @@ async def get_recognitions_by_candidate_exam(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred while retrieving recognitions for candidate exam {candidate_exam_id}: {str(e)}"
+        )
+
+@router.get("/candidate/{candidate_id}", response_model=RecognitionListResponse, summary="Get Recognitions by Candidate")
+async def get_recognitions_by_candidate(
+    candidate_id: str = Path(..., description="ID of the candidate"),
+    skip: int = Query(0, ge=0, description="Number of records to skip (for pagination)"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
+    service: RecognitionService = Depends(get_recognition_service)
+):
+    """
+    Get all recognitions for a specific candidate across all exams.
+    
+    This endpoint returns all recognitions associated with a specific candidate across all exams.
+    
+    Args:
+        candidate_id: ID of the candidate
+        skip: Number of records to skip (for pagination)
+        limit: Maximum number of records to return
+        service: RecognitionService (injected)
+        
+    Returns:
+        List of recognitions for the specified candidate with pagination metadata
+    """
+    try:
+        return await service.get_recognitions_by_candidate_id(candidate_id, skip, limit)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while retrieving recognitions for candidate {candidate_id}: {str(e)}"
         )
 
 @router.get("/organization/{organization}", response_model=RecognitionListResponse, summary="Get Recognitions by Issuing Organization")

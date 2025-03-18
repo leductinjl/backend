@@ -11,14 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date
 
 from app.infrastructure.database.connection import get_db
+from app.repositories.award_repository import AwardRepository
+from app.repositories.candidate_exam_repository import CandidateExamRepository
+from app.services.award_service import AwardService
 from app.api.dto.award import (
     AwardCreate,
     AwardUpdate,
     AwardResponse,
     AwardListResponse
 )
-from app.repositories.award_repository import AwardRepository
-from app.services.award_service import AwardService
 
 router = APIRouter(
     prefix="/awards",
@@ -28,7 +29,7 @@ router = APIRouter(
 
 async def get_award_service(db: AsyncSession = Depends(get_db)):
     """
-    Dependency injection for AwardService
+    Dependency injection for AwardService.
     
     Args:
         db: Database session
@@ -36,8 +37,9 @@ async def get_award_service(db: AsyncSession = Depends(get_db)):
     Returns:
         AwardService: Service instance for award business logic
     """
-    repository = AwardRepository(db)
-    return AwardService(repository)
+    award_repository = AwardRepository(db)
+    candidate_exam_repository = CandidateExamRepository(db)
+    return AwardService(award_repository, candidate_exam_repository)
 
 @router.get("/", response_model=AwardListResponse, summary="List Awards")
 async def get_awards(
@@ -147,6 +149,35 @@ async def get_awards_by_candidate_exam(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred while retrieving awards for candidate exam {candidate_exam_id}: {str(e)}"
+        )
+
+@router.get("/candidate/{candidate_id}", response_model=AwardListResponse, summary="Get Awards by Candidate")
+async def get_awards_by_candidate(
+    candidate_id: str = Path(..., description="ID of the candidate"),
+    skip: int = Query(0, ge=0, description="Number of records to skip (for pagination)"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
+    service: AwardService = Depends(get_award_service)
+):
+    """
+    Get all awards for a specific candidate across all exams.
+    
+    This endpoint returns all awards associated with a specific candidate across all exams.
+    
+    Args:
+        candidate_id: ID of the candidate
+        skip: Number of records to skip (for pagination)
+        limit: Maximum number of records to return
+        service: AwardService (injected)
+        
+    Returns:
+        List of awards for the specified candidate with pagination metadata
+    """
+    try:
+        return await service.get_awards_by_candidate_id(candidate_id, skip, limit)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while retrieving awards for candidate {candidate_id}: {str(e)}"
         )
 
 @router.get("/type/{award_type}", response_model=AwardListResponse, summary="Get Awards by Type")

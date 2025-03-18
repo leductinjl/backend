@@ -6,6 +6,7 @@ using the repository layer for data access.
 """
 
 from app.repositories.award_repository import AwardRepository
+from app.repositories.candidate_exam_repository import CandidateExamRepository
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import date
 import logging
@@ -15,14 +16,20 @@ class AwardService:
     Service for handling business logic related to awards
     """
     
-    def __init__(self, award_repo: AwardRepository):
+    def __init__(
+        self, 
+        award_repo: AwardRepository,
+        candidate_exam_repo: Optional[CandidateExamRepository] = None
+    ):
         """
         Initialize Award Service
         
         Args:
             award_repo: Repository for interacting with award data
+            candidate_exam_repo: Repository for interacting with candidate exam data
         """
         self.award_repo = award_repo
+        self.candidate_exam_repo = candidate_exam_repo
         self.logger = logging.getLogger(__name__)
     
     async def get_all_awards(
@@ -134,6 +141,79 @@ class AwardService:
             }
         except Exception as e:
             self.logger.error(f"Error getting awards for candidate exam {candidate_exam_id}: {e}")
+            raise
+    
+    async def get_awards_by_candidate_id(
+        self, 
+        candidate_id: str, 
+        skip: int = 0, 
+        limit: int = 100
+    ) -> Dict[str, Any]:
+        """
+        Get all awards for a specific candidate across all exams
+        
+        Args:
+            candidate_id: ID of the candidate
+            skip: Number of records to skip (for pagination)
+            limit: Maximum number of records to return
+            
+        Returns:
+            Dictionary containing list of awards and pagination metadata
+        """
+        try:
+            # Verify that we have the required repository
+            if not self.candidate_exam_repo:
+                self.logger.error("Cannot get awards by candidate ID: candidate_exam_repo not provided")
+                return {
+                    "items": [],
+                    "total": 0,
+                    "page": 1,
+                    "size": limit
+                }
+            
+            # Get all candidate-exam registrations for this candidate
+            candidate_exams = await self.candidate_exam_repo.get_by_candidate_id(candidate_id)
+            
+            # No registrations found
+            if not candidate_exams:
+                self.logger.info(f"No exam registrations found for candidate ID {candidate_id}")
+                return {
+                    "items": [],
+                    "total": 0,
+                    "page": 1,
+                    "size": limit
+                }
+            
+            # Collect all awards from all candidate-exam registrations
+            all_awards = []
+            total_count = 0
+            
+            for candidate_exam in candidate_exams:
+                awards, count = await self.award_repo.get_by_candidate_exam(
+                    candidate_exam["candidate_exam_id"], 0, 1000  # Get all awards
+                )
+                
+                for award in awards:
+                    # Add exam name to the award for context
+                    serialized_award = self._serialize_award(award)
+                    serialized_award["exam_name"] = candidate_exam.get("exam_name", "Unknown Exam")
+                    all_awards.append(serialized_award)
+                
+                total_count += count
+            
+            # Apply pagination to the combined result
+            start_idx = skip
+            end_idx = min(skip + limit, len(all_awards))
+            paginated_awards = all_awards[start_idx:end_idx] if start_idx < len(all_awards) else []
+            
+            return {
+                "items": paginated_awards,
+                "total": total_count,
+                "page": skip // limit + 1 if limit > 0 else 1,
+                "size": limit
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting awards for candidate {candidate_id}: {e}")
             raise
     
     async def get_awards_by_award_type(
