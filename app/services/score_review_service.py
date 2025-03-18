@@ -23,7 +23,7 @@ class ScoreReviewService:
     
     def __init__(
         self, 
-        repository: ScoreReviewRepository, 
+        repository: ScoreReviewRepository,
         exam_score_repository: ExamScoreRepository,
         history_repository: Optional[ExamScoreHistoryRepository] = None
     ):

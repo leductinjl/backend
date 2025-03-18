@@ -58,14 +58,14 @@ class ExamAttemptHistoryRepository:
         query = (
             select(
                 ExamAttemptHistory,
-                Candidate.candidate_name,
-                Candidate.candidate_code,
+                Candidate.full_name,
                 Exam.exam_name,
                 ExamType.type_name.label("exam_type")
             )
-            .join(Candidate, ExamAttemptHistory.candidate_id == Candidate.candidate_id)
-            .join(Exam, ExamAttemptHistory.exam_id == Exam.exam_id)
-            .outerjoin(ExamType, Exam.exam_type_id == ExamType.exam_type_id)
+            .join(CandidateExam, ExamAttemptHistory.candidate_exam_id == CandidateExam.candidate_exam_id)
+            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
+            .join(Exam, CandidateExam.exam_id == Exam.exam_id)
+            .outerjoin(ExamType, Exam.type_id == ExamType.type_id)
             .outerjoin(User, ExamAttemptHistory.attendance_verified_by == User.user_id)
         )
         
@@ -74,8 +74,7 @@ class ExamAttemptHistoryRepository:
             search_term = f"%{filters['search']}%"
             query = query.filter(
                 or_(
-                    Candidate.candidate_name.ilike(search_term),
-                    Candidate.candidate_code.ilike(search_term),
+                    Candidate.full_name.ilike(search_term),
                     Exam.exam_name.ilike(search_term),
                     ExamAttemptHistory.notes.ilike(search_term)
                 )
@@ -83,11 +82,11 @@ class ExamAttemptHistoryRepository:
         
         # Apply candidate_id filter
         if filters and "candidate_id" in filters and filters["candidate_id"]:
-            query = query.filter(ExamAttemptHistory.candidate_id == filters["candidate_id"])
+            query = query.filter(CandidateExam.candidate_id == filters["candidate_id"])
         
         # Apply exam_id filter
         if filters and "exam_id" in filters and filters["exam_id"]:
-            query = query.filter(ExamAttemptHistory.exam_id == filters["exam_id"])
+            query = query.filter(CandidateExam.exam_id == filters["exam_id"])
         
         # Apply attempt_number filter
         if filters and "attempt_number" in filters and filters["attempt_number"]:
@@ -145,58 +144,75 @@ class ExamAttemptHistoryRepository:
         
         # Process results to include related entity details
         attempts = []
-        for attempt, candidate_name, candidate_code, exam_name, exam_type in result:
+        for attempt, candidate_name, exam_name, exam_type in result:
             # Get attendance_verified_by name if available
             verified_by_name = None
             
-            if attempt.attendance_verified_by:
+            if hasattr(attempt, 'attendance_verified_by') and attempt.attendance_verified_by:
                 user_query = select(User.name).filter(User.user_id == attempt.attendance_verified_by)
                 user_result = await self.db.execute(user_query)
                 verified_by_name = user_result.scalar_one_or_none()
             
             # Get subject scores if available
             subject_scores = await self._get_subject_scores(
-                attempt.candidate_id, 
-                attempt.exam_id, 
+                attempt.candidate_exam_id, 
                 attempt.attempt_number
             )
             
+            # Get candidate_id and exam_id from candidate_exam
+            candidate_exam_query = (
+                select(CandidateExam.candidate_id, CandidateExam.exam_id)
+                .filter(CandidateExam.candidate_exam_id == attempt.candidate_exam_id)
+            )
+            
+            candidate_exam_result = await self.db.execute(candidate_exam_query)
+            candidate_exam_row = candidate_exam_result.first()
+            
+            candidate_id = None
+            exam_id = None
+            if candidate_exam_row:
+                candidate_id, exam_id = candidate_exam_row
+            
+            # Prepare base response dict with attributes we know exist
             attempt_dict = {
-                "attempt_id": attempt.attempt_id,
-                "candidate_id": attempt.candidate_id,
-                "exam_id": attempt.exam_id,
+                "attempt_history_id": attempt.attempt_history_id,
+                "candidate_exam_id": attempt.candidate_exam_id,
+                "candidate_id": candidate_id,
+                "exam_id": exam_id,
                 "attempt_number": attempt.attempt_number,
                 "attempt_date": attempt.attempt_date,
-                "status": attempt.status,
                 "result": attempt.result,
-                "check_in_time": attempt.check_in_time,
-                "start_time": attempt.start_time,
-                "end_time": attempt.end_time,
-                "total_score": attempt.total_score,
-                "attendance_verified_by": attempt.attendance_verified_by,
-                "disqualification_reason": attempt.disqualification_reason,
-                "cancellation_reason": attempt.cancellation_reason,
                 "notes": attempt.notes,
-                "metadata": attempt.metadata,
                 "created_at": attempt.created_at,
                 "updated_at": attempt.updated_at,
                 "candidate_name": candidate_name,
-                "candidate_code": candidate_code,
                 "exam_name": exam_name,
                 "exam_type": exam_type,
                 "attendance_verified_by_name": verified_by_name,
                 "subject_scores": subject_scores
             }
+            
+            # Add optional attributes if they exist
+            optional_attributes = [
+                "status", "check_in_time", "start_time", "end_time", "total_score", 
+                "attendance_verified_by", "disqualification_reason", "cancellation_reason", 
+                "metadata"
+            ]
+            
+            for attr in optional_attributes:
+                if hasattr(attempt, attr):
+                    attempt_dict[attr] = getattr(attempt, attr)
+            
             attempts.append(attempt_dict)
         
         return attempts, total
     
-    async def get_by_id(self, attempt_id: str) -> Optional[Dict]:
+    async def get_by_id(self, attempt_history_id: str) -> Optional[Dict]:
         """
         Get an attempt history entry by its ID, including related entity details.
         
         Args:
-            attempt_id: The unique identifier of the attempt history entry
+            attempt_history_id: The unique identifier of the attempt history entry
             
         Returns:
             The attempt history entry with related entity details if found, None otherwise
@@ -204,15 +220,15 @@ class ExamAttemptHistoryRepository:
         query = (
             select(
                 ExamAttemptHistory,
-                Candidate.candidate_name,
-                Candidate.candidate_code,
+                Candidate.full_name,
                 Exam.exam_name,
                 ExamType.type_name.label("exam_type")
             )
-            .join(Candidate, ExamAttemptHistory.candidate_id == Candidate.candidate_id)
-            .join(Exam, ExamAttemptHistory.exam_id == Exam.exam_id)
-            .outerjoin(ExamType, Exam.exam_type_id == ExamType.exam_type_id)
-            .filter(ExamAttemptHistory.attempt_id == attempt_id)
+            .join(CandidateExam, ExamAttemptHistory.candidate_exam_id == CandidateExam.candidate_exam_id)
+            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
+            .join(Exam, CandidateExam.exam_id == Exam.exam_id)
+            .outerjoin(ExamType, Exam.type_id == ExamType.type_id)
+            .filter(ExamAttemptHistory.attempt_history_id == attempt_history_id)
         )
         
         result = await self.db.execute(query)
@@ -221,49 +237,67 @@ class ExamAttemptHistoryRepository:
         if not row:
             return None
         
-        attempt, candidate_name, candidate_code, exam_name, exam_type = row
+        attempt, candidate_name, exam_name, exam_type = row
         
         # Get attendance_verified_by name if available
         verified_by_name = None
         
-        if attempt.attendance_verified_by:
+        if hasattr(attempt, 'attendance_verified_by') and attempt.attendance_verified_by:
             user_query = select(User.name).filter(User.user_id == attempt.attendance_verified_by)
             user_result = await self.db.execute(user_query)
             verified_by_name = user_result.scalar_one_or_none()
         
         # Get subject scores if available
         subject_scores = await self._get_subject_scores(
-            attempt.candidate_id, 
-            attempt.exam_id, 
+            attempt.candidate_exam_id, 
             attempt.attempt_number
         )
         
-        return {
-            "attempt_id": attempt.attempt_id,
-            "candidate_id": attempt.candidate_id,
-            "exam_id": attempt.exam_id,
+        # Get candidate_id and exam_id from candidate_exam
+        candidate_exam_query = (
+            select(CandidateExam.candidate_id, CandidateExam.exam_id)
+            .filter(CandidateExam.candidate_exam_id == attempt.candidate_exam_id)
+        )
+        
+        candidate_exam_result = await self.db.execute(candidate_exam_query)
+        candidate_exam_row = candidate_exam_result.first()
+        
+        candidate_id = None
+        exam_id = None
+        if candidate_exam_row:
+            candidate_id, exam_id = candidate_exam_row
+        
+        # Prepare base response dict with attributes we know exist
+        response_dict = {
+            "attempt_history_id": attempt.attempt_history_id,
+            "candidate_exam_id": attempt.candidate_exam_id,
+            "candidate_id": candidate_id,
+            "exam_id": exam_id,
             "attempt_number": attempt.attempt_number,
             "attempt_date": attempt.attempt_date,
-            "status": attempt.status,
             "result": attempt.result,
-            "check_in_time": attempt.check_in_time,
-            "start_time": attempt.start_time,
-            "end_time": attempt.end_time,
-            "total_score": attempt.total_score,
-            "attendance_verified_by": attempt.attendance_verified_by,
-            "disqualification_reason": attempt.disqualification_reason,
-            "cancellation_reason": attempt.cancellation_reason,
             "notes": attempt.notes,
-            "metadata": attempt.metadata,
             "created_at": attempt.created_at,
             "updated_at": attempt.updated_at,
             "candidate_name": candidate_name,
-            "candidate_code": candidate_code,
             "exam_name": exam_name,
             "exam_type": exam_type,
             "attendance_verified_by_name": verified_by_name,
             "subject_scores": subject_scores
         }
+        
+        # Add optional attributes if they exist
+        optional_attributes = [
+            "status", "check_in_time", "start_time", "end_time", "total_score", 
+            "attendance_verified_by", "disqualification_reason", "cancellation_reason", 
+            "metadata"
+        ]
+        
+        for attr in optional_attributes:
+            if hasattr(attempt, attr):
+                response_dict[attr] = getattr(attempt, attr)
+        
+        return response_dict
     
     async def get_by_candidate_id(self, candidate_id: str) -> List[Dict]:
         """
@@ -335,17 +369,17 @@ class ExamAttemptHistoryRepository:
         query = (
             select(
                 ExamAttemptHistory,
-                Candidate.candidate_name,
-                Candidate.candidate_code,
+                Candidate.full_name,
                 Exam.exam_name,
                 ExamType.type_name.label("exam_type")
             )
-            .join(Candidate, ExamAttemptHistory.candidate_id == Candidate.candidate_id)
-            .join(Exam, ExamAttemptHistory.exam_id == Exam.exam_id)
-            .outerjoin(ExamType, Exam.exam_type_id == ExamType.exam_type_id)
+            .join(CandidateExam, ExamAttemptHistory.candidate_exam_id == CandidateExam.candidate_exam_id)
+            .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
+            .join(Exam, CandidateExam.exam_id == Exam.exam_id)
+            .outerjoin(ExamType, Exam.type_id == ExamType.type_id)
             .filter(
-                ExamAttemptHistory.candidate_id == candidate_id,
-                ExamAttemptHistory.exam_id == exam_id
+                CandidateExam.candidate_id == candidate_id,
+                CandidateExam.exam_id == exam_id
             )
             .order_by(desc(ExamAttemptHistory.attempt_number))
             .limit(1)
@@ -357,49 +391,67 @@ class ExamAttemptHistoryRepository:
         if not row:
             return None
         
-        attempt, candidate_name, candidate_code, exam_name, exam_type = row
+        attempt, candidate_name, exam_name, exam_type = row
         
         # Get attendance_verified_by name if available
         verified_by_name = None
         
-        if attempt.attendance_verified_by:
+        if hasattr(attempt, 'attendance_verified_by') and attempt.attendance_verified_by:
             user_query = select(User.name).filter(User.user_id == attempt.attendance_verified_by)
             user_result = await self.db.execute(user_query)
             verified_by_name = user_result.scalar_one_or_none()
         
         # Get subject scores if available
         subject_scores = await self._get_subject_scores(
-            attempt.candidate_id, 
-            attempt.exam_id, 
+            attempt.candidate_exam_id, 
             attempt.attempt_number
         )
         
-        return {
-            "attempt_id": attempt.attempt_id,
-            "candidate_id": attempt.candidate_id,
-            "exam_id": attempt.exam_id,
+        # Get candidate_id and exam_id from candidate_exam
+        candidate_exam_query = (
+            select(CandidateExam.candidate_id, CandidateExam.exam_id)
+            .filter(CandidateExam.candidate_exam_id == attempt.candidate_exam_id)
+        )
+        
+        candidate_exam_result = await self.db.execute(candidate_exam_query)
+        candidate_exam_row = candidate_exam_result.first()
+        
+        candidate_id = None
+        exam_id = None
+        if candidate_exam_row:
+            candidate_id, exam_id = candidate_exam_row
+        
+        # Prepare base response dict with attributes we know exist
+        response_dict = {
+            "attempt_history_id": attempt.attempt_history_id,
+            "candidate_exam_id": attempt.candidate_exam_id,
+            "candidate_id": candidate_id,
+            "exam_id": exam_id,
             "attempt_number": attempt.attempt_number,
             "attempt_date": attempt.attempt_date,
-            "status": attempt.status,
             "result": attempt.result,
-            "check_in_time": attempt.check_in_time,
-            "start_time": attempt.start_time,
-            "end_time": attempt.end_time,
-            "total_score": attempt.total_score,
-            "attendance_verified_by": attempt.attendance_verified_by,
-            "disqualification_reason": attempt.disqualification_reason,
-            "cancellation_reason": attempt.cancellation_reason,
             "notes": attempt.notes,
-            "metadata": attempt.metadata,
             "created_at": attempt.created_at,
             "updated_at": attempt.updated_at,
             "candidate_name": candidate_name,
-            "candidate_code": candidate_code,
             "exam_name": exam_name,
             "exam_type": exam_type,
             "attendance_verified_by_name": verified_by_name,
             "subject_scores": subject_scores
         }
+        
+        # Add optional attributes if they exist
+        optional_attributes = [
+            "status", "check_in_time", "start_time", "end_time", "total_score", 
+            "attendance_verified_by", "disqualification_reason", "cancellation_reason", 
+            "metadata"
+        ]
+        
+        for attr in optional_attributes:
+            if hasattr(attempt, attr):
+                response_dict[attr] = getattr(attempt, attr)
+        
+        return response_dict
     
     async def get_next_attempt_number(self, candidate_id: str, exam_id: str) -> int:
         """
@@ -412,11 +464,48 @@ class ExamAttemptHistoryRepository:
         Returns:
             The next attempt number (1 if no previous attempts)
         """
+        # First, find the candidate_exam_id
+        candidate_exam_query = (
+            select(CandidateExam.candidate_exam_id)
+            .filter(
+                CandidateExam.candidate_id == candidate_id,
+                CandidateExam.exam_id == exam_id
+            )
+        )
+        
+        candidate_exam_result = await self.db.execute(candidate_exam_query)
+        candidate_exam_id = candidate_exam_result.scalar_one_or_none()
+        
+        if not candidate_exam_id:
+            return 1
+        
+        # Then get the max attempt number
         query = (
             select(func.max(ExamAttemptHistory.attempt_number))
             .filter(
-                ExamAttemptHistory.candidate_id == candidate_id,
-                ExamAttemptHistory.exam_id == exam_id
+                ExamAttemptHistory.candidate_exam_id == candidate_exam_id
+            )
+        )
+        
+        result = await self.db.execute(query)
+        max_attempt = result.scalar_one_or_none()
+        
+        return (max_attempt or 0) + 1
+    
+    async def get_next_attempt_number_by_candidate_exam_id(self, candidate_exam_id: str) -> int:
+        """
+        Get the next attempt number for a specific candidate exam relationship.
+        
+        Args:
+            candidate_exam_id: The ID of the candidate exam relationship
+            
+        Returns:
+            The next attempt number (1 if no previous attempts)
+        """
+        query = (
+            select(func.max(ExamAttemptHistory.attempt_number))
+            .filter(
+                ExamAttemptHistory.candidate_exam_id == candidate_exam_id
             )
         )
         
@@ -443,15 +532,15 @@ class ExamAttemptHistoryRepository:
         await self.db.commit()
         await self.db.refresh(new_attempt)
         
-        logger.info(f"Created attempt history entry with ID: {new_attempt.attempt_id}")
+        logger.info(f"Created attempt history entry with ID: {new_attempt.attempt_history_id}")
         return new_attempt
     
-    async def update(self, attempt_id: str, attempt_data: Dict[str, Any]) -> Optional[ExamAttemptHistory]:
+    async def update(self, attempt_history_id: str, attempt_data: Dict[str, Any]) -> Optional[ExamAttemptHistory]:
         """
         Update an existing attempt history entry.
         
         Args:
-            attempt_id: The unique identifier of the attempt history entry
+            attempt_history_id: The unique identifier of the attempt history entry
             attempt_data: Dictionary containing the updated attempt history data
             
         Returns:
@@ -463,7 +552,7 @@ class ExamAttemptHistoryRepository:
         # Update the attempt history entry
         query = (
             update(ExamAttemptHistory)
-            .where(ExamAttemptHistory.attempt_id == attempt_id)
+            .where(ExamAttemptHistory.attempt_history_id == attempt_history_id)
             .values(**attempt_data)
             .returning(ExamAttemptHistory)
         )
@@ -472,19 +561,19 @@ class ExamAttemptHistoryRepository:
         updated_attempt = result.scalar_one_or_none()
         
         if not updated_attempt:
-            logger.warning(f"Attempt history entry with ID {attempt_id} not found for update")
+            logger.warning(f"Attempt history entry with ID {attempt_history_id} not found for update")
             return None
         
         await self.db.commit()
-        logger.info(f"Updated attempt history entry with ID: {attempt_id}")
+        logger.info(f"Updated attempt history entry with ID: {attempt_history_id}")
         return updated_attempt
     
-    async def delete(self, attempt_id: str) -> bool:
+    async def delete(self, attempt_history_id: str) -> bool:
         """
         Delete an attempt history entry.
         
         Args:
-            attempt_id: The unique identifier of the attempt history entry
+            attempt_history_id: The unique identifier of the attempt history entry
             
         Returns:
             True if the attempt history entry was deleted, False otherwise
@@ -492,51 +581,46 @@ class ExamAttemptHistoryRepository:
         # Delete the attempt history entry
         query = (
             delete(ExamAttemptHistory)
-            .where(ExamAttemptHistory.attempt_id == attempt_id)
-            .returning(ExamAttemptHistory.attempt_id)
+            .where(ExamAttemptHistory.attempt_history_id == attempt_history_id)
+            .returning(ExamAttemptHistory.attempt_history_id)
         )
         
         result = await self.db.execute(query)
         deleted_id = result.scalar_one_or_none()
         
         if not deleted_id:
-            logger.warning(f"Attempt history entry with ID {attempt_id} not found for deletion")
+            logger.warning(f"Attempt history entry with ID {attempt_history_id} not found for deletion")
             return False
         
         await self.db.commit()
-        logger.info(f"Deleted attempt history entry with ID: {attempt_id}")
+        logger.info(f"Deleted attempt history entry with ID: {attempt_history_id}")
         return True
     
     async def _get_subject_scores(
         self, 
-        candidate_id: str, 
-        exam_id: str, 
+        candidate_exam_id: str, 
         attempt_number: int
     ) -> List[Dict[str, Any]]:
         """
         Get the subject scores for a specific attempt.
         
         Args:
-            candidate_id: The ID of the candidate
-            exam_id: The ID of the exam
+            candidate_exam_id: The ID of the candidate exam relationship
             attempt_number: The attempt number
             
         Returns:
             List of subject scores with details
         """
-        # First, get the candidate_exam_id
-        candidate_exam_query = (
-            select(CandidateExam.candidate_exam_id)
-            .filter(
-                CandidateExam.candidate_id == candidate_id,
-                CandidateExam.exam_id == exam_id
-            )
+        # First, get the exam_id from candidate_exam
+        exam_id_query = (
+            select(CandidateExam.exam_id)
+            .filter(CandidateExam.candidate_exam_id == candidate_exam_id)
         )
         
-        candidate_exam_result = await self.db.execute(candidate_exam_query)
-        candidate_exam_id = candidate_exam_result.scalar_one_or_none()
+        exam_id_result = await self.db.execute(exam_id_query)
+        exam_id = exam_id_result.scalar_one_or_none()
         
-        if not candidate_exam_id:
+        if not exam_id:
             return []
         
         # Get the exam_subject_ids for the exam
@@ -574,4 +658,18 @@ class ExamAttemptHistoryRepository:
                     "status": status
                 })
         
-        return subject_scores 
+        return subject_scores
+    
+    async def get_attempts_by_candidate_exam_id(self, candidate_exam_id: str) -> List[Dict]:
+        """
+        Get all attempt history entries for a specific candidate exam relationship.
+        
+        Args:
+            candidate_exam_id: The ID of the candidate exam relationship
+            
+        Returns:
+            List of attempt history entries for the specified candidate exam
+        """
+        filters = {"candidate_exam_id": candidate_exam_id}
+        attempts, _ = await self.get_all(filters=filters)
+        return attempts 

@@ -20,7 +20,7 @@ class ExamAttemptHistory(Base):
     """
     __tablename__ = "exam_attempt_history"
     
-    attempt_history_id = Column(String(50), primary_key=True, index=True)
+    attempt_history_id = Column(String(50), primary_key=True, index=True, default=lambda: generate_model_id("ExamAttemptHistory"))
     candidate_exam_id = Column(String(50), ForeignKey("candidate_exam.candidate_exam_id"), nullable=False)
     attempt_number = Column(Integer, nullable=False)
     attempt_date = Column(Date, nullable=False)

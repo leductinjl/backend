@@ -2,7 +2,7 @@
 Admin authentication controller module.
 
 This module provides endpoints for admin authentication functionality
-including login and token refresh operations.
+including login, registration and token refresh operations.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,10 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
 import jwt
 from typing import Optional
+import passlib.hash
 
 from app.infrastructure.database.connection import get_db
 from app.config import settings
-from app.api.dto.admin import AdminLoginRequest, AdminLoginResponse, AdminTokenData
+from app.api.dto.admin import AdminLoginRequest, AdminLoginResponse, AdminTokenData, AdminRegisterRequest
+from app.domain.models.user import User
+from app.services.id_service import generate_model_id
 
 router = APIRouter()
 
@@ -51,49 +54,82 @@ def create_jwt_token(data: AdminTokenData, expires_delta: Optional[timedelta] = 
     
     return encoded_jwt
 
-@router.post("/login", response_model=AdminLoginResponse, summary="Admin Login")
-async def admin_login(form_data: OAuth2PasswordRequestForm = Depends()):
+def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    Authenticate an admin user.
-    
-    This endpoint authenticates admin credentials and returns
-    an access token if valid.
-    
-    Note: In a real application, you would verify credentials against
-    the database. This implementation is simplified for demo purposes.
+    Verify a password against its hash.
     
     Args:
-        form_data: OAuth2 form with username (email) and password
+        plain_password: The plain-text password
+        hashed_password: The hashed password to check against
+        
+    Returns:
+        bool: True if password matches, False otherwise
+    """
+    return passlib.hash.bcrypt.verify(plain_password, hashed_password)
+
+def get_password_hash(password: str) -> str:
+    """
+    Hash a password for storage.
+    
+    Args:
+        password: The plain-text password to hash
+        
+    Returns:
+        str: Hashed password
+    """
+    return passlib.hash.bcrypt.hash(password)
+
+@router.post("/register", response_model=AdminLoginResponse, summary="Admin Registration")
+async def admin_register(
+    register_data: AdminRegisterRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Register a new admin user.
+    
+    This endpoint creates a new admin user in the system with the provided
+    credentials and returns an access token.
+    
+    Args:
+        register_data: Registration information
+        db: Database session
         
     Returns:
         AdminLoginResponse: Login response with access token
         
     Raises:
-        HTTPException: If credentials are invalid
+        HTTPException: If email already exists
     """
-    # This is a simplified example - in production, check against database
-    # For demo purposes, we'll use hardcoded credentials
-    DEMO_ADMIN = {
-        "email": "admin@example.com",
-        "password": "adminpassword123",
-        "user_id": "admin-001",
-        "name": "System Administrator"
-    }
-    
-    # Verify credentials
-    if form_data.username != DEMO_ADMIN["email"] or form_data.password != DEMO_ADMIN["password"]:
+    # Check if email already exists
+    result = await db.execute(
+        db.query(User).filter(User.email == register_data.email)
+    )
+    if result.scalar_one_or_none():
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered"
         )
+    
+    # Create new user
+    new_user = User(
+        user_id=generate_model_id("User"),
+        email=register_data.email,
+        name=register_data.name,
+        password_hash=get_password_hash(register_data.password),
+        role="admin",
+        is_active=True
+    )
+    
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
     
     # Create token data
     token_data = AdminTokenData(
-        sub=DEMO_ADMIN["user_id"],
-        email=DEMO_ADMIN["email"],
-        name=DEMO_ADMIN["name"],
-        role="admin",
+        sub=new_user.user_id,
+        email=new_user.email,
+        name=new_user.name,
+        role=new_user.role,
         permissions=["candidates:manage", "exams:manage", "schools:manage"]
     )
     
@@ -107,8 +143,76 @@ async def admin_login(form_data: OAuth2PasswordRequestForm = Depends()):
     return AdminLoginResponse(
         access_token=access_token,
         token_type="bearer",
-        user_id=DEMO_ADMIN["user_id"],
-        email=DEMO_ADMIN["email"],
-        name=DEMO_ADMIN["name"],
-        role="admin"
+        user_id=new_user.user_id,
+        email=new_user.email,
+        name=new_user.name,
+        role=new_user.role
+    )
+
+@router.post("/login", response_model=AdminLoginResponse, summary="Admin Login")
+async def admin_login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Authenticate an admin user.
+    
+    This endpoint authenticates admin credentials against the database
+    and returns an access token if valid.
+    
+    Args:
+        form_data: OAuth2 form with username (email) and password
+        db: Database session
+        
+    Returns:
+        AdminLoginResponse: Login response with access token
+        
+    Raises:
+        HTTPException: If credentials are invalid
+    """
+    # Get user from database
+    result = await db.execute(
+        db.query(User).filter(User.email == form_data.username)
+    )
+    user = result.scalar_one_or_none()
+    
+    # Verify user exists and password is correct
+    if not user or not verify_password(form_data.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Verify user is active
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is inactive",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Create token data
+    token_data = AdminTokenData(
+        sub=user.user_id,
+        email=user.email,
+        name=user.name,
+        role=user.role,
+        permissions=["candidates:manage", "exams:manage", "schools:manage"]
+    )
+    
+    # Create access token
+    access_token = create_jwt_token(
+        data=token_data,
+        expires_delta=timedelta(hours=1)  # Token valid for 1 hour
+    )
+    
+    # Return login response
+    return AdminLoginResponse(
+        access_token=access_token,
+        token_type="bearer",
+        user_id=user.user_id,
+        email=user.email,
+        name=user.name,
+        role=user.role
     ) 

@@ -190,7 +190,7 @@ class ExamAttemptHistoryService:
     
     async def create_attempt(self, attempt_data: Dict[str, Any]) -> Optional[ExamAttemptHistory]:
         """
-        Create a new attempt history entry after validating candidate and exam IDs.
+        Create a new attempt history entry.
         
         Args:
             attempt_data: Dictionary containing the attempt history data
@@ -198,38 +198,18 @@ class ExamAttemptHistoryService:
         Returns:
             The created attempt history entry if successful, None otherwise
         """
-        # Validate that candidate exists if repository is provided
-        if self.candidate_repository:
-            candidate = await self.candidate_repository.get_by_id(attempt_data["candidate_id"])
-            
-            if not candidate:
-                logger.error(f"Candidate with ID {attempt_data['candidate_id']} not found")
-                return None
-        
-        # Validate that exam exists if repository is provided
-        if self.exam_repository:
-            exam = await self.exam_repository.get_by_id(attempt_data["exam_id"])
-            
-            if not exam:
-                logger.error(f"Exam with ID {attempt_data['exam_id']} not found")
-                return None
-        
-        # Check if candidate is registered for the exam
+        # Validate that candidate_exam exists if repository is provided
         if self.candidate_exam_repository:
-            candidate_exam = await self.candidate_exam_repository.get_by_candidate_and_exam(
-                attempt_data["candidate_id"], 
-                attempt_data["exam_id"]
-            )
+            candidate_exam = await self.candidate_exam_repository.get_by_id(attempt_data["candidate_exam_id"])
             
             if not candidate_exam:
-                logger.error(f"Candidate {attempt_data['candidate_id']} is not registered for exam {attempt_data['exam_id']}")
+                logger.error(f"Candidate exam with ID {attempt_data['candidate_exam_id']} not found")
                 return None
         
         # If attempt_number is not provided, determine the next attempt number
         if "attempt_number" not in attempt_data:
-            attempt_data["attempt_number"] = await self.repository.get_next_attempt_number(
-                attempt_data["candidate_id"], 
-                attempt_data["exam_id"]
+            attempt_data["attempt_number"] = await self.repository.get_next_attempt_number_by_candidate_exam_id(
+                attempt_data["candidate_exam_id"]
             )
         
         # Create the attempt history entry
@@ -576,65 +556,38 @@ class ExamAttemptHistoryService:
     
     async def register_new_attempt(
         self, 
-        candidate_id: str, 
-        exam_id: str, 
+        candidate_exam_id: str, 
         attempt_date: date,
-        notes: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        notes: Optional[str] = None
     ) -> Optional[ExamAttemptHistory]:
         """
-        Register a new attempt for a candidate to take an exam.
+        Register a new attempt for a candidate exam.
         
         Args:
-            candidate_id: The ID of the candidate
-            exam_id: The ID of the exam
+            candidate_exam_id: The ID of the candidate exam relationship
             attempt_date: Date of the exam attempt
             notes: Additional notes about the attempt
-            metadata: Additional metadata for the attempt
             
         Returns:
             The created attempt history entry if successful, None otherwise
         """
-        # Validate that candidate exists if repository is provided
-        if self.candidate_repository:
-            candidate = await self.candidate_repository.get_by_id(candidate_id)
-            
-            if not candidate:
-                logger.error(f"Candidate with ID {candidate_id} not found")
-                return None
-        
-        # Validate that exam exists if repository is provided
-        if self.exam_repository:
-            exam = await self.exam_repository.get_by_id(exam_id)
-            
-            if not exam:
-                logger.error(f"Exam with ID {exam_id} not found")
-                return None
-        
-        # Check if candidate is registered for the exam
+        # Validate that candidate_exam exists
         if self.candidate_exam_repository:
-            candidate_exam = await self.candidate_exam_repository.get_by_candidate_and_exam(
-                candidate_id, 
-                exam_id
-            )
+            candidate_exam = await self.candidate_exam_repository.get_by_id(candidate_exam_id)
             
             if not candidate_exam:
-                logger.error(f"Candidate {candidate_id} is not registered for exam {exam_id}")
+                logger.error(f"Candidate exam with ID {candidate_exam_id} not found")
                 return None
         
         # Get the next attempt number
-        attempt_number = await self.repository.get_next_attempt_number(candidate_id, exam_id)
+        attempt_number = await self.repository.get_next_attempt_number_by_candidate_exam_id(candidate_exam_id)
         
         # Create the attempt history entry
         attempt_data = {
-            "candidate_id": candidate_id,
-            "exam_id": exam_id,
+            "candidate_exam_id": candidate_exam_id,
             "attempt_number": attempt_number,
             "attempt_date": attempt_date,
-            "status": "registered",
-            "result": "pending",
-            "notes": notes,
-            "metadata": metadata
+            "notes": notes
         }
         
         return await self.repository.create(attempt_data)

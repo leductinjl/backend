@@ -14,6 +14,13 @@ class AdminLoginRequest(BaseModel):
     email: EmailStr = Field(..., description="Admin email address")
     password: str = Field(..., min_length=8, description="Admin password")
 
+# Admin registration request model
+class AdminRegisterRequest(BaseModel):
+    """Data model for admin registration requests."""
+    email: EmailStr = Field(..., description="Admin email address")
+    password: str = Field(..., min_length=8, description="Admin password")
+    name: str = Field(..., description="Admin full name")
+
 # Admin login response model
 class AdminLoginResponse(BaseModel):
     """Data model for admin login responses."""
