@@ -12,6 +12,8 @@ from app.core.db import connect_to_db
 from app.core.routes import setup_routes
 import uvicorn
 from app.config import settings
+from app.infrastructure.ontology import initialize_ontology
+
 # Configure logging
 setup_logging()
 
@@ -27,6 +29,8 @@ async def startup_db_client():
     This function is called when the FastAPI application starts up.
     """
     await connect_to_db()
+    # Initialize Neo4j ontology
+    await initialize_ontology()
 
 # Set up all routes
 setup_routes(app)

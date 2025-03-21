@@ -1,46 +1,331 @@
 """
-Placeholder module for Neo4j candidate graph repository.
+Candidate Graph Repository module.
 
-This module provides a minimal implementation of the CandidateGraphRepository
-to allow the application to start without Neo4j dependencies.
+This module provides methods for interacting with Candidate nodes in Neo4j.
 """
+
+from app.domain.graph_models.candidate_node import CandidateNode
+from app.infrastructure.ontology.ontology import RELATIONSHIPS
+import logging
+
+logger = logging.getLogger(__name__)
 
 class CandidateGraphRepository:
     """
-    Empty implementation of CandidateGraphRepository.
+    Repository for managing Candidate nodes in Neo4j knowledge graph.
     
-    This is a temporary version that allows the application
-    to start without requiring Neo4j features.
+    This class provides methods to create, update, and query Candidate nodes
+    and their relationships with other entities in the knowledge graph.
     """
     
-    def __init__(self, neo4j_connection=None):
-        """Initialize with optional neo4j connection."""
+    def __init__(self, neo4j_connection):
+        """Initialize with Neo4j connection."""
         self.neo4j = neo4j_connection
     
-    async def create_or_update(self, candidate=None):
-        """Placeholder for create_or_update method."""
+    async def create_or_update(self, candidate):
+        """
+        Create or update a Candidate node in Neo4j.
+        
+        Args:
+            candidate: CandidateNode object or dictionary with candidate data
+            
+        Returns:
+            bool: True if operation successful, False otherwise
+        """
+        try:
+            # Ensure we have a dictionary
+            if hasattr(candidate, 'to_dict'):
+                params = candidate.to_dict()
+                logger.info(f"Converting CandidateNode to dict for {params.get('candidate_id')}")
+            else:
+                params = candidate
+                logger.info(f"Using provided dict for candidate {params.get('candidate_id')}")
+            
+            # Execute Cypher query to create/update candidate
+            query = CandidateNode.create_query()
+            logger.info(f"Executing query for candidate {params.get('candidate_id')}")
+            
+            result = await self.neo4j.execute_query(query, params)
+            
+            if result and len(result) > 0:
+                # Create IS_A relationship with Candidate class
+                await self._create_is_a_relationship(params.get('candidate_id'))
+                logger.info(f"Successfully created/updated candidate {params.get('candidate_id')} in Neo4j")
+                return True
+            else:
+                logger.error(f"No result returned for candidate {params.get('candidate_id')}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error creating/updating candidate in Neo4j: {e}", exc_info=True)
+            return False
+    
+    async def _create_is_a_relationship(self, node_id: str):
+        """
+        Tạo mối quan hệ INSTANCE_OF giữa node instance và class node tương ứng.
+        
+        Args:
+            node_id: ID của node instance
+        """
+        try:
+            query = """
+            MATCH (instance:Candidate:OntologyInstance {candidate_id: $node_id})
+            MATCH (class:Candidate:OntologyClass {id: 'candidate-class'})
+            MERGE (instance)-[r:INSTANCE_OF]->(class)
+            RETURN r
+            """
+            await self.neo4j.execute_query(query, {"node_id": node_id})
+            logger.info(f"Created INSTANCE_OF relationship for candidate {node_id}")
+        except Exception as e:
+            logger.error(f"Error creating INSTANCE_OF relationship for candidate {node_id}: {e}")
+            raise
+    
+    async def get_by_id(self, candidate_id):
+        """
+        Get a candidate by ID.
+        
+        Args:
+            candidate_id: The ID of the candidate to retrieve
+            
+        Returns:
+            CandidateNode or None if not found
+        """
+        query = """
+        MATCH (c:Candidate {candidate_id: $candidate_id})
+        RETURN c
+        """
+        params = {"candidate_id": candidate_id}
+        
+        result = await self.neo4j.execute_query(query, params)
+        if result and len(result) > 0:
+            return CandidateNode.from_record({"c": result[0][0]})
         return None
     
-    async def get_by_id(self, candidate_id=None):
-        """Placeholder for get_by_id method."""
-        return None
+    async def delete(self, candidate_id):
+        """
+        Delete a candidate from Neo4j.
+        
+        Args:
+            candidate_id: ID of the candidate to delete
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        query = """
+        MATCH (c:Candidate {candidate_id: $candidate_id})
+        DETACH DELETE c
+        """
+        params = {"candidate_id": candidate_id}
+        
+        try:
+            await self.neo4j.execute_query(query, params)
+            return True
+        except Exception as e:
+            print(f"Error deleting candidate from Neo4j: {e}")
+            return False
     
-    async def delete(self, candidate_id=None):
-        """Placeholder for delete method."""
-        return True
+    async def add_studies_at_relationship(self, candidate_id, school_id, relationship_data=None):
+        """
+        Create a relationship between a candidate and a school.
+        
+        Args:
+            candidate_id: ID of the candidate
+            school_id: ID of the school
+            relationship_data: Additional data for the relationship
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        query = RELATIONSHIPS["STUDIES_AT"]["create_query"]
+        
+        # Set default values if not provided
+        relationship_data = relationship_data or {}
+        params = {
+            "candidate_id": candidate_id,
+            "school_id": school_id,
+            "start_year": relationship_data.get("start_year"),
+            "end_year": relationship_data.get("end_year"),
+            "education_level": relationship_data.get("education_level")
+        }
+        
+        try:
+            await self.neo4j.execute_query(query, params)
+            return True
+        except Exception as e:
+            print(f"Error adding STUDIES_AT relationship: {e}")
+            return False
     
-    async def add_studies_relationship(self, candidate_id=None, school_id=None, relationship_data=None):
-        """Placeholder for add_studies_relationship method."""
+    async def add_attends_exam_relationship(self, candidate_id, exam_id, relationship_data=None):
+        """
+        Create a relationship between a candidate and an exam.
+        
+        Args:
+            candidate_id: ID of the candidate
+            exam_id: ID of the exam
+            relationship_data: Additional data for the relationship
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        query = RELATIONSHIPS["ATTENDS_EXAM"]["create_query"]
+        
+        # Set default values if not provided
+        relationship_data = relationship_data or {}
+        params = {
+            "candidate_id": candidate_id,
+            "exam_id": exam_id,
+            "registration_number": relationship_data.get("registration_number"),
+            "registration_date": relationship_data.get("registration_date"),
+            "status": relationship_data.get("status")
+        }
+        
+        try:
+            await self.neo4j.execute_query(query, params)
+            return True
+        except Exception as e:
+            print(f"Error adding ATTENDS_EXAM relationship: {e}")
+            return False
+    
+    async def add_earns_certificate_relationship(self, candidate_id, certificate_id):
+        """
+        Create a relationship between a candidate and a certificate.
+        
+        Args:
+            candidate_id: ID of the candidate
+            certificate_id: ID of the certificate
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        query = RELATIONSHIPS["EARNS_CERTIFICATE"]["create_query"]
+        
+        params = {
+            "candidate_id": candidate_id,
+            "certificate_id": certificate_id
+        }
+        
+        try:
+            await self.neo4j.execute_query(query, params)
+            return True
+        except Exception as e:
+            print(f"Error adding EARNS_CERTIFICATE relationship: {e}")
         return False
     
-    async def add_attends_exam_relationship(self, candidate_id=None, exam_id=None, relationship_data=None):
-        """Placeholder for add_attends_exam_relationship method."""
+    async def add_holds_degree_relationship(self, candidate_id, degree_id):
+        """
+        Create a relationship between a candidate and a degree.
+        
+        Args:
+            candidate_id: ID of the candidate
+            degree_id: ID of the degree
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        query = RELATIONSHIPS["HOLDS_DEGREE"]["create_query"]
+        
+        params = {
+            "candidate_id": candidate_id,
+            "degree_id": degree_id
+        }
+        
+        try:
+            await self.neo4j.execute_query(query, params)
+            return True
+        except Exception as e:
+            print(f"Error adding HOLDS_DEGREE relationship: {e}")
         return False
     
-    async def get_education_history(self, candidate_id=None):
-        """Placeholder for get_education_history method."""
+    async def get_education_history(self, candidate_id):
+        """
+        Get a candidate's education history.
+        
+        Args:
+            candidate_id: ID of the candidate
+            
+        Returns:
+            List of education history records
+        """
+        query = """
+        MATCH (c:Candidate {candidate_id: $candidate_id})-[r:STUDIES_AT]->(s:School)
+        RETURN s, r
+        ORDER BY r.start_year DESC
+        """
+        params = {"candidate_id": candidate_id}
+        
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            education_history = []
+            
+            for record in result:
+                school = record[0]
+                relationship = record[1]
+                
+                education_history.append({
+                    "school_id": school["school_id"],
+                    "school_name": school["school_name"],
+                    "start_year": relationship["start_year"],
+                    "end_year": relationship["end_year"],
+                    "education_level": relationship["education_level"]
+                })
+            
+            return education_history
+        except Exception as e:
+            print(f"Error getting education history: {e}")
         return []
     
-    async def get_exam_history(self, candidate_id=None):
-        """Placeholder for get_exam_history method."""
+    async def get_exam_history(self, candidate_id):
+        """
+        Get a candidate's exam history.
+        
+        Args:
+            candidate_id: ID of the candidate
+            
+        Returns:
+            List of exam history records
+        """
+        query = """
+        MATCH (c:Candidate {candidate_id: $candidate_id})-[r:ATTENDS_EXAM]->(e:Exam)
+        OPTIONAL MATCH (c)-[rs:RECEIVES_SCORE]->(s:Score)-[fs:FOR_SUBJECT]->(sub:Subject)
+        OPTIONAL MATCH (s)-[ie:IN_EXAM]->(e2:Exam)
+        WHERE e2.exam_id = e.exam_id
+        RETURN e, r, s, sub
+        ORDER BY e.start_date DESC
+        """
+        params = {"candidate_id": candidate_id}
+        
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            exam_history = []
+            
+            for record in result:
+                exam = record[0]
+                relationship = record[1]
+                score = record[2]
+                subject = record[3]
+                
+                exam_entry = {
+                    "exam_id": exam["exam_id"],
+                    "exam_name": exam["exam_name"],
+                    "exam_type": exam["exam_type"],
+                    "start_date": exam["start_date"],
+                    "end_date": exam["end_date"],
+                    "registration_number": relationship["registration_number"],
+                    "registration_date": relationship["registration_date"],
+                    "status": relationship["status"],
+                    "scores": []
+                }
+                
+                if score and subject:
+                    exam_entry["scores"].append({
+                        "subject_id": subject["subject_id"],
+                        "subject_name": subject["subject_name"],
+                        "score_value": score["score_value"]
+                    })
+                
+                exam_history.append(exam_entry)
+            
+            return exam_history
+        except Exception as e:
+            print(f"Error getting exam history: {e}")
         return [] 

@@ -464,4 +464,15 @@ class CandidateExamRepository:
         await self.db.commit()
         
         logger.info(f"Deleted candidate exam registration with ID: {candidate_exam_id}")
-        return True 
+        return True
+    
+    async def get_all_raw(self) -> List[CandidateExam]:
+        """
+        Get all candidate exam registrations as raw CandidateExam objects without formatting.
+        
+        Returns:
+            List of raw CandidateExam instances
+        """
+        query = select(CandidateExam)
+        result = await self.db.execute(query)
+        return result.scalars().all() 

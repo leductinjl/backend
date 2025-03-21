@@ -38,6 +38,7 @@ from app.api.controllers.education_level_router import router as education_level
 from app.api.controllers.recognition_router import router as recognition_router
 from app.api.controllers.award_router import router as award_router
 from app.api.controllers.achievement_router import router as achievement_router
+from app.api.controllers.knowledge_graph_controller import router as knowledge_graph_router
 
 logger = logging.getLogger("api")
 
@@ -105,7 +106,8 @@ def setup_routes(app: FastAPI):
         (score_review_router, "Score Reviews"),
         (exam_score_history_router, "Exam Score Histories"),
         (certificate_router, "Certificates"),
-        (exam_attempt_history_router, "Attempt Histories")
+        (exam_attempt_history_router, "Attempt Histories"),
+        (knowledge_graph_router, "Knowledge Graph")
     ]
 
     # Register all routers using the list of tuples

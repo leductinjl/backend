@@ -13,6 +13,7 @@ from typing import List, Optional
 import uuid
 from datetime import datetime, timedelta
 import pytz
+import logging
 
 from app.infrastructure.database.connection import get_db
 from app.infrastructure.ontology.neo4j_connection import get_neo4j
@@ -38,6 +39,8 @@ router = APIRouter(
     tags=["Admin"],
     responses={404: {"description": "Not found"}}
 )
+
+logger = logging.getLogger(__name__)
 
 # Add authentication endpoints directly
 @router.post("/register", response_model=AdminLoginResponse, summary="Admin Registration")
@@ -293,5 +296,39 @@ async def list_invitations(
         }
         for inv in invitations
     ]
+
+@router.post("/sync/neo4j", response_model=dict)
+async def synchronize_to_neo4j(
+    resync_ontology: bool = True,
+    db: AsyncSession = Depends(get_db),
+    neo4j = Depends(get_neo4j),
+    admin: dict = Depends(get_current_admin)
+):
+    """
+    Đồng bộ dữ liệu từ PostgreSQL sang Neo4j knowledge graph.
+    
+    Endpoint này sẽ đồng bộ tất cả các entity và mối quan hệ giữa chúng.
+    
+    Args:
+        resync_ontology: Nếu True, tạo lại các mối quan hệ IS_A trong ontology cho tất cả node hiện có
+    """
+    from app.services.sync_service import SyncService
+    
+    try:
+        sync_service = SyncService(neo4j_connection=neo4j, db_session=db)
+        results = await sync_service.bulk_sync_all(resync_ontology=resync_ontology)
+        
+        return {
+            "status": "success",
+            "message": "Data synchronized to Neo4j",
+            "results": results
+        }
+    except Exception as e:
+        logger.error(f"Error synchronizing data to Neo4j: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": f"Error during synchronization: {str(e)}",
+            "results": {}
+        }
 
 # Additional admin routes for managing exams, schools, etc. would go here

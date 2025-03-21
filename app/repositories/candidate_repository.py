@@ -16,12 +16,36 @@ class CandidateRepository:
         self.db_session = db_session
         self.logger = logging.getLogger(__name__)
     
-    async def get_all(self, skip: int = 0, limit: int = 100) -> List[Candidate]:
-        """Get list of candidates with pagination"""
+    async def get_all(self, skip: int = 0, limit: int = 100, include_personal_info: bool = False) -> List[Candidate]:
+        """
+        Get list of candidates with pagination and optional personal info
+        
+        Args:
+            skip: Number of records to skip
+            limit: Maximum number of records to return
+            include_personal_info: Whether to include personal info in the query
+            
+        Returns:
+            List of candidates
+        """
         try:
-            query = select(Candidate).offset(skip).limit(limit)
+            # Build base query
+            query = select(Candidate)
+            
+            # Add personal info if requested
+            if include_personal_info:
+                query = query.options(joinedload(Candidate.personal_info))
+            
+            # Add pagination
+            query = query.offset(skip).limit(limit)
+            
+            # Execute query
             result = await self.db_session.execute(query)
-            return list(result.scalars().all())
+            candidates = list(result.scalars().unique().all())
+            
+            self.logger.info(f"Retrieved {len(candidates)} candidates from database")
+            return candidates
+            
         except Exception as e:
             self.logger.error(f"Error getting all candidates: {e}")
             raise
