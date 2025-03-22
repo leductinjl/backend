@@ -16,6 +16,8 @@ from app.domain.models.exam_schedule import ExamSchedule
 from app.domain.models.exam_subject import ExamSubject
 from app.domain.models.exam import Exam
 from app.domain.models.subject import Subject
+from app.domain.models.exam_room import ExamRoom
+from app.domain.models.exam_location import ExamLocation
 
 class ExamScheduleRepository:
     """Repository for interacting with the ExamSchedule table."""
@@ -37,6 +39,8 @@ class ExamScheduleRepository:
         exam_id: Optional[str] = None,
         subject_id: Optional[str] = None,
         exam_subject_id: Optional[str] = None,
+        room_id: Optional[str] = None,
+        location_id: Optional[str] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         status: Optional[str] = None
@@ -50,6 +54,8 @@ class ExamScheduleRepository:
             exam_id: Filter by exam ID
             subject_id: Filter by subject ID
             exam_subject_id: Filter by exam subject ID
+            room_id: Filter by exam room ID
+            location_id: Filter by exam location ID
             start_date: Filter by minimum start date
             end_date: Filter by maximum end date
             status: Filter by status
@@ -65,7 +71,9 @@ class ExamScheduleRepository:
                     joinedload(ExamSchedule.exam_subject)
                     .joinedload(ExamSubject.exam),
                     joinedload(ExamSchedule.exam_subject)
-                    .joinedload(ExamSubject.subject)
+                    .joinedload(ExamSubject.subject),
+                    joinedload(ExamSchedule.exam_room)
+                    .joinedload(ExamRoom.location)
                 )
             )
             
@@ -75,6 +83,9 @@ class ExamScheduleRepository:
             if exam_subject_id:
                 conditions.append(ExamSchedule.exam_subject_id == exam_subject_id)
             
+            if room_id:
+                conditions.append(ExamSchedule.room_id == room_id)
+                
             if exam_id:
                 conditions.append(ExamSubject.exam_id == exam_id)
                 
@@ -89,10 +100,16 @@ class ExamScheduleRepository:
                 
             if status:
                 conditions.append(ExamSchedule.status == status)
+                
+            if location_id:
+                conditions.append(ExamRoom.location_id == location_id)
             
-            # Apply joins if needed for filtering by exam or subject
+            # Apply joins if needed for filtering
             if exam_id or subject_id:
                 query = query.join(ExamSubject, ExamSchedule.exam_subject_id == ExamSubject.exam_subject_id)
+                
+            if location_id:
+                query = query.join(ExamRoom, ExamSchedule.room_id == ExamRoom.room_id)
             
             # Apply conditions if any
             if conditions:
@@ -135,7 +152,9 @@ class ExamScheduleRepository:
                     joinedload(ExamSchedule.exam_subject)
                     .joinedload(ExamSubject.exam),
                     joinedload(ExamSchedule.exam_subject)
-                    .joinedload(ExamSubject.subject)
+                    .joinedload(ExamSubject.subject),
+                    joinedload(ExamSchedule.exam_room)
+                    .joinedload(ExamRoom.location)
                 )
                 .where(ExamSchedule.exam_schedule_id == exam_schedule_id)
             )
@@ -172,7 +191,9 @@ class ExamScheduleRepository:
                     joinedload(ExamSchedule.exam_subject)
                     .joinedload(ExamSubject.exam),
                     joinedload(ExamSchedule.exam_subject)
-                    .joinedload(ExamSubject.subject)
+                    .joinedload(ExamSubject.subject),
+                    joinedload(ExamSchedule.exam_room)
+                    .joinedload(ExamRoom.location)
                 )
                 .where(ExamSchedule.exam_subject_id == exam_subject_id)
                 .order_by(ExamSchedule.start_time)
@@ -223,7 +244,9 @@ class ExamScheduleRepository:
                     joinedload(ExamSchedule.exam_subject)
                     .joinedload(ExamSubject.exam),
                     joinedload(ExamSchedule.exam_subject)
-                    .joinedload(ExamSubject.subject)
+                    .joinedload(ExamSubject.subject),
+                    joinedload(ExamSchedule.exam_room)
+                    .joinedload(ExamRoom.location)
                 )
                 .where(ExamSubject.exam_id == exam_id)
                 .order_by(ExamSchedule.start_time)
@@ -249,6 +272,58 @@ class ExamScheduleRepository:
             
         except Exception as e:
             self.logger.error(f"Error getting exam schedules for exam {exam_id}: {str(e)}")
+            raise
+    
+    async def get_by_room(
+        self,
+        room_id: str,
+        skip: int = 0,
+        limit: int = 100
+    ) -> Tuple[List[ExamSchedule], int]:
+        """
+        Get exam schedules for a specific exam room.
+        
+        Args:
+            room_id: ID of the exam room
+            skip: Number of records to skip
+            limit: Maximum number of records to return
+            
+        Returns:
+            Tuple of (list of exam schedules, total count)
+        """
+        try:
+            # Query for schedules in the specified room
+            query = (
+                select(ExamSchedule)
+                .options(
+                    joinedload(ExamSchedule.exam_subject)
+                    .joinedload(ExamSubject.exam),
+                    joinedload(ExamSchedule.exam_subject)
+                    .joinedload(ExamSubject.subject),
+                    joinedload(ExamSchedule.exam_room)
+                    .joinedload(ExamRoom.location)
+                )
+                .where(ExamSchedule.room_id == room_id)
+                .order_by(ExamSchedule.start_time)
+            )
+            
+            # Get total count
+            count_query = select(func.count()).select_from(
+                select(ExamSchedule).where(ExamSchedule.room_id == room_id).subquery()
+            )
+            total = await self.db.scalar(count_query)
+            
+            # Apply pagination
+            query = query.offset(skip).limit(limit)
+            
+            # Execute query
+            result = await self.db.execute(query)
+            schedules = result.scalars().unique().all()
+            
+            return schedules, total
+            
+        except Exception as e:
+            self.logger.error(f"Error getting exam schedules for room {room_id}: {str(e)}")
             raise
     
     async def get_by_date_range(
@@ -278,7 +353,9 @@ class ExamScheduleRepository:
                     joinedload(ExamSchedule.exam_subject)
                     .joinedload(ExamSubject.exam),
                     joinedload(ExamSchedule.exam_subject)
-                    .joinedload(ExamSubject.subject)
+                    .joinedload(ExamSubject.subject),
+                    joinedload(ExamSchedule.exam_room)
+                    .joinedload(ExamRoom.location)
                 )
                 .where(
                     or_(
@@ -335,6 +412,10 @@ class ExamScheduleRepository:
                 from app.services.id_service import generate_model_id
                 exam_schedule_data['exam_schedule_id'] = generate_model_id("ExamSchedule")
             
+            # Validate that room_id is provided
+            if 'room_id' not in exam_schedule_data or not exam_schedule_data['room_id']:
+                raise ValueError("room_id is required for creating an exam schedule")
+            
             # Create new exam schedule
             exam_schedule = ExamSchedule(**exam_schedule_data)
             self.db.add(exam_schedule)
@@ -350,17 +431,13 @@ class ExamScheduleRepository:
             self.logger.error(f"Error creating exam schedule: {str(e)}")
             raise
     
-    async def update(
-        self,
-        exam_schedule_id: str,
-        exam_schedule_data: Dict[str, Any]
-    ) -> Optional[ExamSchedule]:
+    async def update(self, exam_schedule_id: str, exam_schedule_data: Dict[str, Any]) -> Optional[ExamSchedule]:
         """
         Update an exam schedule.
         
         Args:
             exam_schedule_id: ID of the exam schedule to update
-            exam_schedule_data: Dictionary with updated data
+            exam_schedule_data: Dictionary with updated exam schedule data
             
         Returns:
             Updated ExamSchedule object or None if not found
@@ -378,7 +455,6 @@ class ExamScheduleRepository:
                 .values(**exam_schedule_data)
             )
             await self.db.execute(stmt)
-            await self.db.flush()
             
             # Get the updated exam schedule
             updated_schedule = await self.get_by_id(exam_schedule_id)

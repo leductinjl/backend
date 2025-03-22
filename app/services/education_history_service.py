@@ -269,3 +269,57 @@ class EducationHistoryService:
             data["education_level_name"] = None
         
         return data 
+
+    async def get_degrees_by_education_history(self, education_history_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all degrees associated with a specific education history entry
+        
+        Args:
+            education_history_id: ID of the education history
+            
+        Returns:
+            List of dictionaries containing degree details
+        """
+        try:
+            # First check if the education history exists
+            education_history = await self.education_history_repo.get_by_id(education_history_id)
+            if not education_history:
+                return []
+                
+            # Get degrees directly linked to this education history
+            from sqlalchemy import select
+            from app.domain.models.degree import Degree
+            from app.domain.models.major import Major
+            from sqlalchemy.orm import joinedload
+            
+            query = (
+                select(Degree)
+                .options(joinedload(Degree.major))
+                .where(Degree.education_history_id == education_history_id)
+            )
+            
+            result = await self.education_history_repo.db_session.execute(query)
+            degrees = result.scalars().all()
+            
+            # Serialize degrees
+            from app.services.degree_service import DegreeService
+            serialized_degrees = []
+            
+            for degree in degrees:
+                # Create a simple serialization manually (not using the full DegreeService for simplicity)
+                # In production, you might want to use DegreeService._serialize_degree if accessible
+                degree_dict = {
+                    "degree_id": degree.degree_id,
+                    "major_id": degree.major_id,
+                    "major_name": degree.major.major_name if degree.major else None,
+                    "start_year": degree.start_year.year if degree.start_year else None,
+                    "end_year": degree.end_year.year if degree.end_year else None,
+                    "academic_performance": degree.academic_performance,
+                    "additional_info": degree.additional_info
+                }
+                serialized_degrees.append(degree_dict)
+                
+            return serialized_degrees
+        except Exception as e:
+            self.logger.error(f"Error getting degrees for education history {education_history_id}: {e}")
+            raise 

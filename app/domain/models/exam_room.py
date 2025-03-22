@@ -36,6 +36,7 @@ class ExamRoom(Base):
     
     # Relationships
     location = relationship("ExamLocation", back_populates="exam_rooms")
+    exam_schedules = relationship("ExamSchedule", back_populates="exam_room")
     
     def __init__(self, **kwargs):
         """Initialize a new ExamRoom instance with an auto-generated ID if not provided."""

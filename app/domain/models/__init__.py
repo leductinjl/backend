@@ -18,6 +18,7 @@ from app.domain.models.exam_room import ExamRoom
 from app.domain.models.exam_subject import ExamSubject
 from app.domain.models.exam_schedule import ExamSchedule
 from app.domain.models.candidate_exam import CandidateExam
+from app.domain.models.candidate_exam_subject import CandidateExamSubject
 from app.domain.models.exam_score import ExamScore
 from app.domain.models.exam_score_history import ExamScoreHistory
 from app.domain.models.score_review import ScoreReview

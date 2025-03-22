@@ -13,6 +13,7 @@ import pytz
 class ExamScheduleBase(BaseModel):
     """Base model with common attributes for exam schedules"""
     exam_subject_id: str = Field(..., description="ID of the exam subject")
+    room_id: str = Field(..., description="ID of the exam room where this schedule will take place")
     start_time: datetime = Field(..., description="Start time of the exam")
     end_time: datetime = Field(..., description="End time of the exam")
     description: Optional[str] = Field(None, description="Additional information about the exam schedule")
@@ -31,6 +32,7 @@ class ExamScheduleCreate(ExamScheduleBase):
 
 class ExamScheduleUpdate(BaseModel):
     """Model for updating an exam schedule"""
+    room_id: Optional[str] = Field(None, description="ID of the exam room where this schedule will take place")
     start_time: Optional[datetime] = Field(None, description="Start time of the exam")
     end_time: Optional[datetime] = Field(None, description="End time of the exam")
     description: Optional[str] = Field(None, description="Additional information about the exam schedule")
@@ -54,6 +56,9 @@ class ExamScheduleResponse(ExamScheduleBase):
     exam_name: Optional[str] = Field(None, description="Name of the related exam")
     subject_id: Optional[str] = Field(None, description="ID of the related subject")
     subject_name: Optional[str] = Field(None, description="Name of the related subject")
+    location_id: Optional[str] = Field(None, description="ID of the exam location")
+    location_name: Optional[str] = Field(None, description="Name of the exam location")
+    room_name: Optional[str] = Field(None, description="Name of the exam room")
     
     class Config:
         from_attributes = True
@@ -79,6 +84,14 @@ class ExamScheduleResponse(ExamScheduleBase):
                 
             if hasattr(obj.exam_subject, 'subject') and obj.exam_subject.subject:
                 response.subject_name = obj.exam_subject.subject.subject_name
+                
+        # Map exam room and location information
+        if hasattr(obj, 'exam_room') and obj.exam_room:
+            response.room_name = obj.exam_room.room_name
+            
+            if hasattr(obj.exam_room, 'location') and obj.exam_room.location:
+                response.location_id = obj.exam_room.location.location_id
+                response.location_name = obj.exam_room.location.location_name
                 
         return response
 

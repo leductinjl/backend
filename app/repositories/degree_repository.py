@@ -174,16 +174,10 @@ class DegreeRepository:
             Tuple containing list of degrees and total count
         """
         try:
-            # First get education histories for this candidate at university/postgraduate level
+            # First get education histories for this candidate
             education_query = (
                 select(EducationHistory)
-                .join(EducationLevel, EducationHistory.education_level_id == EducationLevel.education_level_id)
-                .where(
-                    and_(
-                        EducationHistory.candidate_id == candidate_id,
-                        EducationLevel.code.in_(['UNIVERSITY', 'POSTGRADUATE'])
-                    )
-                )
+                .where(EducationHistory.candidate_id == candidate_id)
             )
             
             education_result = await self.db_session.execute(education_query)
@@ -191,23 +185,40 @@ class DegreeRepository:
             
             if not education_histories:
                 return [], 0
-                
-            # Get degrees that match with these education histories by major and time period
-            degrees = []
-            all_degree_ids = set()
+            
+            # Approach 1: Get directly linked degrees through education_history_id
+            degree_query = (
+                select(Degree)
+                .join(Major, Degree.major_id == Major.major_id)
+                .options(joinedload(Degree.major))
+                .where(
+                    Degree.education_history_id.in_([eh.education_history_id for eh in education_histories])
+                )
+            )
+            
+            direct_result = await self.db_session.execute(degree_query)
+            direct_degrees = direct_result.scalars().all()
+            
+            # Approach 2: For backward compatibility, also find degrees that might match but aren't directly linked
+            all_degree_ids = set(d.degree_id for d in direct_degrees)
+            inferred_degrees = []
             
             for history in education_histories:
-                # Get degrees that might match this education history
+                # Skip if this history already has linked degrees
+                if any(d.education_history_id == history.education_history_id for d in direct_degrees):
+                    continue
+                    
+                # Try to find degrees based on major and time period
                 degree_query = (
                     select(Degree)
                     .join(Major, Degree.major_id == Major.major_id)
                     .options(joinedload(Degree.major))
                     .where(
                         and_(
+                            Degree.education_history_id.is_(None),  # Only get unlinked degrees
                             # Match time periods if available
                             (Degree.start_year >= history.start_year) if history.start_year and Degree.start_year else True,
                             (Degree.end_year <= history.end_year) if history.end_year and Degree.end_year else True
-                            # Could add more conditions like matching by school or specific major criteria
                         )
                     )
                 )
@@ -217,15 +228,19 @@ class DegreeRepository:
                 
                 for degree in matching_degrees:
                     if degree.degree_id not in all_degree_ids:
-                        # Attach candidate information to each degree
-                        from types import SimpleNamespace
-                        degree.candidate = SimpleNamespace(
-                            candidate_id=candidate_id,
-                            full_name=None  # Will be filled in the service layer
-                        )
-                        
-                        degrees.append(degree)
+                        inferred_degrees.append(degree)
                         all_degree_ids.add(degree.degree_id)
+            
+            # Combine both direct and inferred degrees
+            degrees = list(direct_degrees) + inferred_degrees
+            
+            # For each degree, attach candidate information
+            for degree in degrees:
+                from types import SimpleNamespace
+                degree.candidate = SimpleNamespace(
+                    candidate_id=candidate_id,
+                    full_name=None  # Will be filled in the service layer
+                )
             
             # Apply pagination
             total = len(degrees)

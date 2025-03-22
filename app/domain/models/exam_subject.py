@@ -39,6 +39,7 @@ class ExamSubject(Base):
     subject = relationship("Subject", back_populates="exam_subjects")
     exam_scores = relationship("ExamScore", back_populates="exam_subject")
     exam_schedules = relationship("ExamSchedule", back_populates="exam_subject")
+    candidate_exam_subjects = relationship("CandidateExamSubject", back_populates="exam_subject")
     
     @validates('exam_subject_id')
     def validate_id(self, key, id_value):

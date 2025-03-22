@@ -31,6 +31,7 @@ class ExamScore(Base):
     
     exam_score_id = Column(String(60), primary_key=True, index=True)
     exam_subject_id = Column(String(60), ForeignKey("exam_subject.exam_subject_id"), nullable=False)
+    candidate_exam_subject_id = Column(String(60), ForeignKey("candidate_exam_subject.candidate_exam_subject_id"), nullable=False)
     score = Column(DECIMAL(5, 2))
     status = Column(String(20), default=ScoreStatus.PENDING)
     graded_by = Column(String(60), nullable=True)
@@ -42,6 +43,7 @@ class ExamScore(Base):
     
     # Relationships
     exam_subject = relationship("ExamSubject", back_populates="exam_scores")
+    candidate_exam_subject = relationship("CandidateExamSubject", backref="exam_scores")
     score_histories = relationship("ExamScoreHistory", back_populates="score")
     score_reviews = relationship("ScoreReview", back_populates="score")
     
@@ -53,4 +55,4 @@ class ExamScore(Base):
         return id_value
     
     def __repr__(self):
-        return f"<ExamScore(exam_score_id='{self.exam_score_id}', exam_subject_id='{self.exam_subject_id}', score={self.score})>" 
+        return f"<ExamScore(exam_score_id='{self.exam_score_id}', exam_subject_id='{self.exam_subject_id}', candidate_exam_subject_id='{self.candidate_exam_subject_id}', score={self.score})>" 

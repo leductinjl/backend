@@ -257,7 +257,7 @@ class ScoreSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            score_repo = await repo_factory.get_exam_score_repository()
+            score_repo = repo_factory.get_exam_score_repository()
             
             # Get all scores
             scores = await score_repo.get_all()
@@ -291,7 +291,7 @@ class ScoreSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            history_repo = await repo_factory.get_score_history_repository()
+            history_repo = repo_factory.get_score_history_repository()
             
             # Get all score histories
             histories = await history_repo.get_all()
@@ -321,7 +321,7 @@ class ScoreSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            review_repo = await repo_factory.get_score_review_repository()
+            review_repo = repo_factory.get_score_review_repository()
             
             # Get all score reviews
             reviews = await review_repo.get_all()

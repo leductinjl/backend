@@ -68,6 +68,10 @@ class RepositoryFactory:
             self._repositories['score'] = ExamScoreRepository(self.db_session)
         return self._repositories['score']
     
+    def get_exam_score_repository(self) -> ExamScoreRepository:
+        """Alias for get_score_repository."""
+        return self.get_score_repository()
+    
     def get_major_repository(self) -> MajorRepository:
         """Get or create a MajorRepository instance."""
         if 'major' not in self._repositories:
@@ -168,4 +172,52 @@ class RepositoryFactory:
             # Import here to avoid circular imports
             from app.repositories.candidate_exam_repository import CandidateExamRepository
             self._repositories['candidate_exam'] = CandidateExamRepository(self.db_session)
-        return self._repositories['candidate_exam'] 
+        return self._repositories['candidate_exam']
+    
+    def get_school_major_repository(self):
+        """Get or create a SchoolMajorRepository instance."""
+        if 'school_major' not in self._repositories:
+            # Import here to avoid circular imports
+            from app.repositories.school_major_repository import SchoolMajorRepository
+            self._repositories['school_major'] = SchoolMajorRepository(self.db_session)
+        return self._repositories['school_major']
+    
+    def get_candidate_major_repository(self):
+        """Get or create a CandidateMajorRepository instance."""
+        if 'candidate_major' not in self._repositories:
+            # Import here to avoid circular imports
+            from app.repositories.candidate_major_repository import CandidateMajorRepository
+            self._repositories['candidate_major'] = CandidateMajorRepository(self.db_session)
+        return self._repositories['candidate_major']
+    
+    def get_education_history_repository(self):
+        """Get or create an EducationHistoryRepository instance."""
+        if 'education_history' not in self._repositories:
+            # Import here to avoid circular imports
+            from app.repositories.education_history_repository import EducationHistoryRepository
+            self._repositories['education_history'] = EducationHistoryRepository(self.db_session)
+        return self._repositories['education_history']
+    
+    def get_exam_subject_repository(self):
+        """Get or create an ExamSubjectRepository instance."""
+        if 'exam_subject' not in self._repositories:
+            # Import here to avoid circular imports
+            from app.repositories.exam_subject_repository import ExamSubjectRepository
+            self._repositories['exam_subject'] = ExamSubjectRepository(self.db_session)
+        return self._repositories['exam_subject']
+    
+    def get_personal_info_repository(self):
+        """Get or create a PersonalInfoRepository instance."""
+        if 'personal_info' not in self._repositories:
+            # Import here to avoid circular imports
+            from app.repositories.personal_info_repository import PersonalInfoRepository
+            self._repositories['personal_info'] = PersonalInfoRepository(self.db_session)
+        return self._repositories['personal_info']
+    
+    def get_exam_location_mapping_repository(self):
+        """Get or create an ExamLocationMappingRepository instance."""
+        if 'exam_location_mapping' not in self._repositories:
+            # Import here to avoid circular imports
+            from app.repositories.exam_location_mapping_repository import ExamLocationMappingRepository
+            self._repositories['exam_location_mapping'] = ExamLocationMappingRepository(self.db_session)
+        return self._repositories['exam_location_mapping'] 

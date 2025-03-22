@@ -337,7 +337,7 @@ class ExamSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            exam_repo = await repo_factory.get_exam_repository()
+            exam_repo = repo_factory.get_exam_repository()
             
             # Get all exams
             exams = await exam_repo.get_all()
@@ -367,7 +367,8 @@ class ExamSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            location_repo = await repo_factory.get_exam_location_repository()
+            location_repo = repo_factory.get_exam_location_repository()
+            mapping_repo = repo_factory.get_exam_location_mapping_repository()
             
             # Get all exam locations
             locations = await location_repo.get_all()
@@ -380,7 +381,6 @@ class ExamSyncService(BaseSyncService):
                     success_count += 1
             
             # Establish relationships with exams
-            mapping_repo = await repo_factory.get_exam_location_mapping_repository()
             mappings = await mapping_repo.get_all()
             logger.info(f"Found {len(mappings)} exam-location mappings to sync")
             
@@ -422,7 +422,7 @@ class ExamSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            room_repo = await repo_factory.get_exam_room_repository()
+            room_repo = repo_factory.get_exam_room_repository()
             
             # Get all exam rooms
             rooms = await room_repo.get_all()
@@ -452,7 +452,7 @@ class ExamSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            schedule_repo = await repo_factory.get_exam_schedule_repository()
+            schedule_repo = repo_factory.get_exam_schedule_repository()
             
             # Get all exam schedules
             schedules = await schedule_repo.get_all()
@@ -482,7 +482,7 @@ class ExamSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            attempt_repo = await repo_factory.get_exam_attempt_repository()
+            attempt_repo = repo_factory.get_exam_attempt_repository()
             
             # Get all exam attempts
             attempts = await attempt_repo.get_all()

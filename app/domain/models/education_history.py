@@ -35,6 +35,7 @@ class EducationHistory(Base):
     candidate = relationship("Candidate", back_populates="education_histories")
     school = relationship("School", back_populates="education_histories")
     education_level = relationship("EducationLevel")
+    degrees = relationship("Degree", back_populates="education_history")
     
     @validates('education_history_id')
     def validate_id(self, key, id_value):

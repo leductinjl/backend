@@ -233,6 +233,7 @@ class DegreeService:
         data = {
             "degree_id": degree.degree_id,
             "major_id": degree.major_id,
+            "education_history_id": degree.education_history_id,
             "start_year": start_year,
             "end_year": end_year,
             "academic_performance": degree.academic_performance,
@@ -250,5 +251,11 @@ class DegreeService:
         if hasattr(degree, 'candidate') and degree.candidate:
             data["candidate_id"] = degree.candidate.candidate_id
             data["candidate_name"] = degree.candidate.full_name
+        
+        # If there's an education history, try to get candidate info from it
+        elif degree.education_history_id and hasattr(degree, 'education_history') and degree.education_history:
+            data["candidate_id"] = degree.education_history.candidate_id
+            if hasattr(degree.education_history, 'candidate') and degree.education_history.candidate:
+                data["candidate_name"] = degree.education_history.candidate.full_name
         
         return data 

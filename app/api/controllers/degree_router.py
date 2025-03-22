@@ -264,4 +264,44 @@ async def delete_degree(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred while deleting degree: {str(e)}"
+        )
+
+@router.post("/education-history/{education_history_id}", response_model=DegreeResponse, summary="Assign Degree to Education History")
+async def assign_degree_to_education_history(
+    education_history_id: str = Path(..., description="ID of the education history to associate with the degree"),
+    degree_id: str = Query(..., description="ID of the degree to assign"),
+    service: DegreeService = Depends(get_degree_service)
+):
+    """
+    Assign a degree to a specific education history.
+    
+    This endpoint creates an association between a degree and an education history entry,
+    making it possible to track which degrees were earned through which educational paths.
+    
+    Args:
+        education_history_id: ID of the education history to associate with the degree
+        degree_id: ID of the degree to assign
+        service: DegreeService (injected)
+        
+    Returns:
+        Updated degree information
+        
+    Raises:
+        HTTPException: If degree or education history not found or error occurs
+    """
+    try:
+        update_data = {"education_history_id": education_history_id}
+        degree = await service.update_degree(degree_id, update_data)
+        if not degree:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Degree with ID {degree_id} not found"
+            )
+        return degree
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while assigning degree to education history: {str(e)}"
         ) 

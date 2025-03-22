@@ -279,4 +279,43 @@ async def delete_education_history(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred while deleting education history: {str(e)}"
+        )
+
+@router.get("/{education_history_id}/degrees", summary="Get Degrees by Education History")
+async def get_degrees_by_education_history(
+    education_history_id: str = Path(..., description="ID of the education history"),
+    service: EducationHistoryService = Depends(get_education_history_service)
+):
+    """
+    Get all degrees associated with a specific education history.
+    
+    This endpoint returns all degrees that are associated with an education history,
+    allowing to see which degrees were earned through a specific educational path.
+    
+    Args:
+        education_history_id: ID of the education history
+        service: EducationHistoryService (injected)
+        
+    Returns:
+        List of degrees associated with the education history
+        
+    Raises:
+        HTTPException: If education history not found or error occurs
+    """
+    try:
+        education_history = await service.get_education_history_by_id(education_history_id)
+        if not education_history:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Education history with ID {education_history_id} not found"
+            )
+            
+        degrees = await service.get_degrees_by_education_history(education_history_id)
+        return degrees
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while retrieving degrees for education history: {str(e)}"
         ) 

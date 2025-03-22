@@ -79,7 +79,7 @@ class AcademicSyncService(BaseSyncService):
             
             # Retrieve candidate and exam IDs for relationship creation
             repo_factory = RepositoryFactory(self.db)
-            candidate_exam_repo = await repo_factory.get_candidate_exam_repository()
+            candidate_exam_repo = repo_factory.get_candidate_exam_repository()
             
             try:
                 candidate_exam = await candidate_exam_repo.get_by_certificate_id(certificate_id)
@@ -327,7 +327,7 @@ class AcademicSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            certificate_repo = await repo_factory.get_certificate_repository()
+            certificate_repo = repo_factory.get_certificate_repository()
             
             # Get all certificates
             certificates = await certificate_repo.get_all()
@@ -357,7 +357,7 @@ class AcademicSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            achievement_repo = await repo_factory.get_achievement_repository()
+            achievement_repo = repo_factory.get_achievement_repository()
             
             # Get all achievements
             achievements = await achievement_repo.get_all()
@@ -387,7 +387,7 @@ class AcademicSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            recognition_repo = await repo_factory.get_recognition_repository()
+            recognition_repo = repo_factory.get_recognition_repository()
             
             # Get all recognitions
             recognitions = await recognition_repo.get_all()
@@ -417,7 +417,7 @@ class AcademicSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            degree_repo = await repo_factory.get_degree_repository()
+            degree_repo = repo_factory.get_degree_repository()
             
             # Get all degrees
             degrees = await degree_repo.get_all()
@@ -447,7 +447,7 @@ class AcademicSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            credential_repo = await repo_factory.get_credential_repository()
+            credential_repo = repo_factory.get_credential_repository()
             
             # Get all credentials
             credentials = await credential_repo.get_all()

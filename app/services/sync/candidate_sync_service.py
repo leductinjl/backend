@@ -260,8 +260,8 @@ class CandidateSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            candidate_repo = await repo_factory.get_candidate_repository()
-            personal_info_repo = await repo_factory.get_personal_info_repository()
+            candidate_repo = repo_factory.get_candidate_repository()
+            personal_info_repo = repo_factory.get_personal_info_repository()
             
             # Get all candidates
             candidates = await candidate_repo.get_all()
@@ -298,7 +298,7 @@ class CandidateSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            history_repo = await repo_factory.get_education_history_repository()
+            history_repo = repo_factory.get_education_history_repository()
             
             # Get all education histories
             histories = await history_repo.get_all()
@@ -328,7 +328,7 @@ class CandidateSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            candidate_exam_repo = await repo_factory.get_candidate_exam_repository()
+            candidate_exam_repo = repo_factory.get_candidate_exam_repository()
             
             # Get all candidate-exam relationships
             relationships = await candidate_exam_repo.get_all()
@@ -358,7 +358,7 @@ class CandidateSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            candidate_major_repo = await repo_factory.get_candidate_major_repository()
+            candidate_major_repo = repo_factory.get_candidate_major_repository()
             
             # Get all candidate-major relationships
             relationships = await candidate_major_repo.get_all()

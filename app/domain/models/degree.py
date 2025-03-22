@@ -22,6 +22,7 @@ class Degree(Base):
     
     degree_id = Column(String(50), primary_key=True, index=True)
     major_id = Column(String(50), ForeignKey("major.major_id"), nullable=False)
+    education_history_id = Column(String(50), ForeignKey("education_history.education_history_id"), nullable=True)
     start_year = Column(Date)
     end_year = Column(Date)
     academic_performance = Column(String(20))  # Good, Excellent
@@ -32,6 +33,7 @@ class Degree(Base):
     
     # Relationships
     major = relationship("Major", back_populates="degrees")
+    education_history = relationship("EducationHistory", back_populates="degrees")
     
     @validates('degree_id')
     def validate_id(self, key, id_value):

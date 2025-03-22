@@ -122,7 +122,7 @@ class AdminAuthenticationMiddleware(BaseHTTPMiddleware):
         
         # Check if token is blacklisted
         try:
-            redis_client = await anext(get_redis())
+            redis_client = await get_redis()
             if await redis_client.exists(f"blacklist:{token}"):
                 self.logger.warning(f"Attempted use of blacklisted token for path: {path}")
                 raise HTTPException(

@@ -20,11 +20,12 @@ class DegreeBase(BaseModel):
 
 # Request model for creating a new degree
 class DegreeCreate(DegreeBase):
-    pass
+    education_history_id: Optional[str] = Field(None, description="ID of the education history associated with this degree")
 
 # Request model for updating a degree
 class DegreeUpdate(BaseModel):
     major_id: Optional[str] = Field(None, description="ID of the major associated with this degree")
+    education_history_id: Optional[str] = Field(None, description="ID of the education history associated with this degree")
     start_year: Optional[int] = Field(None, description="Year when the degree program started")
     end_year: Optional[int] = Field(None, description="Year when the degree was completed")
     academic_performance: Optional[str] = Field(None, description="Academic performance (e.g., Good, Excellent)")
@@ -36,6 +37,7 @@ class DegreeResponse(DegreeBase):
     degree_id: str = Field(..., description="Unique identifier for the degree")
     created_at: Optional[datetime] = Field(None, description="Timestamp when the degree was created")
     updated_at: Optional[datetime] = Field(None, description="Timestamp when the degree was last updated")
+    education_history_id: Optional[str] = Field(None, description="ID of the education history associated with this degree")
     
     # Additional fields for related data
     major_name: Optional[str] = Field(None, description="Name of the major associated with this degree")

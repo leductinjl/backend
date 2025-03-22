@@ -40,6 +40,7 @@ class CandidateExam(Base):
     recognitions = relationship("Recognition", back_populates="candidate_exam")
     awards = relationship("Award", back_populates="candidate_exam")
     achievements = relationship("Achievement", back_populates="candidate_exam")
+    candidate_exam_subjects = relationship("CandidateExamSubject", back_populates="candidate_exam")
     
     def __init__(self, **kwargs):
         """Initialize a new CandidateExam instance with an auto-generated ID if not provided."""

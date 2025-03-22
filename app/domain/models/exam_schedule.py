@@ -29,6 +29,7 @@ class ExamSchedule(Base):
     
     exam_schedule_id = Column(String(50), primary_key=True, index=True)
     exam_subject_id = Column(String(50), ForeignKey("exam_subject.exam_subject_id"), nullable=False)
+    room_id = Column(String(60), ForeignKey("exam_room.room_id"), nullable=False)
     start_time = Column(DateTime(timezone=True), nullable=False)
     end_time = Column(DateTime(timezone=True), nullable=False)
     description = Column(Text)
@@ -38,6 +39,7 @@ class ExamSchedule(Base):
     
     # Relationships
     exam_subject = relationship("ExamSubject", back_populates="exam_schedules")
+    exam_room = relationship("ExamRoom", back_populates="exam_schedules")
     
     # Properties to access nested fields
     @property
@@ -66,6 +68,20 @@ class ExamSchedule(Base):
         """Get the subject name from the related exam subject."""
         if self.exam_subject and hasattr(self.exam_subject, 'subject') and self.exam_subject.subject:
             return self.exam_subject.subject.subject_name
+        return None
+    
+    @property
+    def location_id(self):
+        """Get the location ID from the related exam room."""
+        if self.exam_room and hasattr(self.exam_room, 'location_id'):
+            return self.exam_room.location_id
+        return None
+    
+    @property
+    def location_name(self):
+        """Get the location name from the related exam room."""
+        if self.exam_room and hasattr(self.exam_room, 'location') and self.exam_room.location:
+            return self.exam_room.location.location_name
         return None
     
     @validates('exam_schedule_id')

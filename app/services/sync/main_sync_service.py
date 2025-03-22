@@ -231,7 +231,7 @@ class MainSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            school_repo = await repo_factory.get_school_repository()
+            school_repo = repo_factory.get_school_repository()
             
             # Get all schools
             schools = await school_repo.get_all()
@@ -316,7 +316,7 @@ class MainSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            subject_repo = await repo_factory.get_subject_repository()
+            subject_repo = repo_factory.get_subject_repository()
             
             # Get all subjects
             subjects = await subject_repo.get_all()
@@ -329,7 +329,7 @@ class MainSyncService(BaseSyncService):
                     success_count += 1
             
             # Sync exam-subject relationships
-            exam_subject_repo = await repo_factory.get_exam_subject_repository()
+            exam_subject_repo = repo_factory.get_exam_subject_repository()
             exam_subjects = await exam_subject_repo.get_all()
             logger.info(f"Found {len(exam_subjects)} exam-subject relationships to sync")
             
@@ -450,7 +450,7 @@ class MainSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            major_repo = await repo_factory.get_major_repository()
+            major_repo = repo_factory.get_major_repository()
             
             # Get all majors
             majors = await major_repo.get_all()
@@ -529,7 +529,7 @@ class MainSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            school_major_repo = await repo_factory.get_school_major_repository()
+            school_major_repo = repo_factory.get_school_major_repository()
             
             # Get all school-major relationships
             relationships = await school_major_repo.get_all()
@@ -600,7 +600,7 @@ class MainSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            award_repo = await repo_factory.get_award_repository()
+            award_repo = repo_factory.get_award_repository()
             
             # Get all awards
             awards = await award_repo.get_all()
@@ -679,7 +679,7 @@ class MainSyncService(BaseSyncService):
         try:
             # Get repository factory
             repo_factory = RepositoryFactory(self.db)
-            unit_repo = await repo_factory.get_management_unit_repository()
+            unit_repo = repo_factory.get_management_unit_repository()
             
             # Get all management units
             units = await unit_repo.get_all()

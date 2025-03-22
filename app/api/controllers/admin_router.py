@@ -312,10 +312,10 @@ async def synchronize_to_neo4j(
     Args:
         resync_ontology: Nếu True, tạo lại các mối quan hệ IS_A trong ontology cho tất cả node hiện có
     """
-    from app.services.sync_service import SyncService
+    from app.services.sync import MainSyncService
     
     try:
-        sync_service = SyncService(neo4j_connection=neo4j, db_session=db)
+        sync_service = MainSyncService(neo4j_connection=neo4j, db_session=db)
         results = await sync_service.bulk_sync_all(resync_ontology=resync_ontology)
         
         return {
