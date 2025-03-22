@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, Response, 
 from typing import List, Optional, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, date
+import logging
 
 from app.infrastructure.database.connection import get_db
 from app.api.dto.score_review import (
@@ -27,6 +28,8 @@ router = APIRouter(
     tags=["Score Reviews"],
     responses={404: {"description": "Not found"}}
 )
+
+logger = logging.getLogger(__name__)
 
 async def get_score_review_service(db: AsyncSession = Depends(get_db)):
     """
@@ -331,15 +334,31 @@ async def complete_review(
     Raises:
         HTTPException: If the score review is not found
     """
+    logger.info(f"Completing review {score_review_id} with score {reviewed_score} and result {review_result}")
+    
     result = await service.complete_review(score_review_id, reviewed_score, review_result)
     if not result:
+        logger.error(f"Failed to complete review {score_review_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to complete review. Review not found."
         )
     
+    logger.info(f"Review {score_review_id} completed successfully")
+    
+    # Extract score_id safely from the result
+    score_id = None
+    if isinstance(result, dict) and "review" in result:
+        review = result["review"]
+        if hasattr(review, "score_id"):
+            score_id = review.score_id
+        elif isinstance(review, dict) and "score_id" in review:
+            score_id = review["score_id"]
+    
     return {
-        "review": result["review"],
-        "score": result["score"],
-        "message": "Review completed and score updated successfully."
+        "message": "Review completed and score updated successfully.",
+        "review_id": score_review_id,
+        "score_id": score_id,
+        "reviewed_score": float(reviewed_score) if reviewed_score else None,
+        "status": "completed"
     }

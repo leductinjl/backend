@@ -82,7 +82,7 @@ class ExamScoreHistoryRepository:
                     Exam.exam_name.ilike(search_term),
                     Subject.subject_name.ilike(search_term),
                     Subject.subject_code.ilike(search_term),
-                    ExamScoreHistory.reason.ilike(search_term)
+                    ExamScoreHistory.change_reason.ilike(search_term)
                 )
             )
         
@@ -90,17 +90,9 @@ class ExamScoreHistoryRepository:
         if filters and "score_id" in filters and filters["score_id"]:
             query = query.filter(ExamScoreHistory.score_id == filters["score_id"])
         
-        # Apply change_type filter
-        if filters and "change_type" in filters and filters["change_type"]:
-            query = query.filter(ExamScoreHistory.change_type == filters["change_type"])
-        
         # Apply changed_by filter
         if filters and "changed_by" in filters and filters["changed_by"]:
             query = query.filter(ExamScoreHistory.changed_by == filters["changed_by"])
-        
-        # Apply review_id filter
-        if filters and "review_id" in filters and filters["review_id"]:
-            query = query.filter(ExamScoreHistory.review_id == filters["review_id"])
         
         # Apply candidate_id filter
         if filters and "candidate_id" in filters and filters["candidate_id"]:
@@ -124,8 +116,8 @@ class ExamScoreHistoryRepository:
         # Apply additional filters if any
         if filters:
             for field, value in filters.items():
-                if field not in ["search", "score_id", "change_type", "changed_by", "review_id",
-                               "candidate_id", "exam_id", "subject_id", "created_after", "created_before"] and value is not None:
+                if field not in ["search", "score_id", "changed_by", "candidate_id", 
+                              "exam_id", "subject_id", "created_after", "created_before"] and value is not None:
                     if hasattr(ExamScoreHistory, field):
                         query = query.filter(getattr(ExamScoreHistory, field) == value)
         
@@ -158,12 +150,11 @@ class ExamScoreHistoryRepository:
                 "score_id": history.score_id,
                 "previous_score": history.previous_score,
                 "new_score": history.new_score,
+                "change_date": history.change_date,
+                "change_reason": history.change_reason,
                 "changed_by": history.changed_by,
-                "reason": history.reason,
-                "change_type": history.change_type,
-                "review_id": history.review_id,
-                "metadata": history.metadata,
                 "created_at": history.created_at,
+                "updated_at": history.updated_at,
                 "candidate_name": full_name,
                 "candidate_code": candidate_id,
                 "exam_name": exam_name,
@@ -222,12 +213,11 @@ class ExamScoreHistoryRepository:
             "score_id": history.score_id,
             "previous_score": history.previous_score,
             "new_score": history.new_score,
+            "change_date": history.change_date,
+            "change_reason": history.change_reason,
             "changed_by": history.changed_by,
-            "reason": history.reason,
-            "change_type": history.change_type,
-            "review_id": history.review_id,
-            "metadata": history.metadata,
             "created_at": history.created_at,
+            "updated_at": history.updated_at,
             "candidate_name": full_name,
             "candidate_code": candidate_id,
             "exam_name": exam_name,
@@ -280,12 +270,11 @@ class ExamScoreHistoryRepository:
                 "score_id": history.score_id,
                 "previous_score": history.previous_score,
                 "new_score": history.new_score,
+                "change_date": history.change_date,
+                "change_reason": history.change_reason,
                 "changed_by": history.changed_by,
-                "reason": history.reason,
-                "change_type": history.change_type,
-                "review_id": history.review_id,
-                "metadata": history.metadata,
                 "created_at": history.created_at,
+                "updated_at": history.updated_at,
                 "candidate_name": full_name,
                 "candidate_code": candidate_id,
                 "exam_name": exam_name,
@@ -341,12 +330,11 @@ class ExamScoreHistoryRepository:
                 "score_id": history.score_id,
                 "previous_score": history.previous_score,
                 "new_score": history.new_score,
+                "change_date": history.change_date,
+                "change_reason": history.change_reason,
                 "changed_by": history.changed_by,
-                "reason": history.reason,
-                "change_type": history.change_type,
-                "review_id": history.review_id,
-                "metadata": history.metadata,
                 "created_at": history.created_at,
+                "updated_at": history.updated_at,
                 "candidate_name": full_name,
                 "candidate_code": candidate_id,
                 "exam_name": exam_name,
@@ -402,12 +390,11 @@ class ExamScoreHistoryRepository:
                 "score_id": history.score_id,
                 "previous_score": history.previous_score,
                 "new_score": history.new_score,
+                "change_date": history.change_date,
+                "change_reason": history.change_reason,
                 "changed_by": history.changed_by,
-                "reason": history.reason,
-                "change_type": history.change_type,
-                "review_id": history.review_id,
-                "metadata": history.metadata,
                 "created_at": history.created_at,
+                "updated_at": history.updated_at,
                 "candidate_name": full_name,
                 "candidate_code": candidate_id,
                 "exam_name": exam_name,
@@ -471,10 +458,8 @@ class ExamScoreHistoryRepository:
             "previous_score": previous_score,
             "new_score": new_score,
             "changed_by": changed_by,
-            "reason": reason,
-            "change_type": change_type,
-            "review_id": review_id,
-            "metadata": metadata
+            "change_reason": reason,
+            "change_date": datetime.now()
         }
         
         return await self.create(history_data) 

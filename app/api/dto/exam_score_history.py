@@ -24,10 +24,8 @@ class ExamScoreHistoryBase(BaseModel):
     previous_score: Optional[float] = Field(None, description="Previous score value before the change")
     new_score: Optional[float] = Field(None, description="New score value after the change")
     changed_by: Optional[str] = Field(None, description="ID of the user who made the change")
-    reason: Optional[str] = Field(None, description="Reason for the change")
-    change_type: ChangeType = Field(ChangeType.UPDATED, description="Type of change that occurred")
-    review_id: Optional[str] = Field(None, description="ID of the score review if the change was due to a review")
-    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata for the history entry")
+    change_reason: Optional[str] = Field(None, description="Reason for the change")
+    change_date: datetime = Field(..., description="Date when the change occurred")
 
 # Request model for creating a score history entry
 class ExamScoreHistoryCreate(ExamScoreHistoryBase):
@@ -37,6 +35,7 @@ class ExamScoreHistoryCreate(ExamScoreHistoryBase):
 class ExamScoreHistoryResponse(ExamScoreHistoryBase):
     history_id: str = Field(..., description="Unique identifier for the score history entry")
     created_at: datetime = Field(..., description="Timestamp when the history entry was created")
+    updated_at: Optional[datetime] = Field(None, description="Timestamp when the history entry was last updated")
     
     class Config:
         from_attributes = True

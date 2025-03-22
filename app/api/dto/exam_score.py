@@ -20,6 +20,7 @@ class ScoreStatus(str, Enum):
 # Base model with common properties
 class ExamScoreBase(BaseModel):
     exam_subject_id: str = Field(..., description="ID of the exam subject")
+    candidate_exam_subject_id: str = Field(..., description="ID of the candidate's registration for this exam subject")
     score: Optional[float] = Field(None, description="Score obtained by the candidate")
     status: ScoreStatus = Field(ScoreStatus.PENDING, description="Status of the score")
     graded_by: Optional[str] = Field(None, description="ID of the user who graded the exam")

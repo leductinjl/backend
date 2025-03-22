@@ -243,19 +243,16 @@ class DegreeService:
             "updated_at": degree.updated_at
         }
         
-        # Add major name if available
-        if hasattr(degree, 'major') and degree.major:
+        # Add major name if available - use safe access pattern
+        if hasattr(degree, 'major') and degree.major is not None:
             data["major_name"] = degree.major.major_name
         
-        # Add candidate information if available
-        if hasattr(degree, 'candidate') and degree.candidate:
-            data["candidate_id"] = degree.candidate.candidate_id
-            data["candidate_name"] = degree.candidate.full_name
-        
-        # If there's an education history, try to get candidate info from it
-        elif degree.education_history_id and hasattr(degree, 'education_history') and degree.education_history:
+        # Add candidate information if education history was loaded
+        if degree.education_history_id and hasattr(degree, 'education_history') and degree.education_history is not None:
             data["candidate_id"] = degree.education_history.candidate_id
-            if hasattr(degree.education_history, 'candidate') and degree.education_history.candidate:
+            
+            # Safely access the candidate if it was loaded
+            if hasattr(degree.education_history, 'candidate') and degree.education_history.candidate is not None:
                 data["candidate_name"] = degree.education_history.candidate.full_name
         
         return data 

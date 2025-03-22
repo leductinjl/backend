@@ -41,9 +41,7 @@ class ExamScoreHistoryService:
         limit: int = 100,
         search: Optional[str] = None,
         score_id: Optional[str] = None,
-        change_type: Optional[str] = None,
         changed_by: Optional[str] = None,
-        review_id: Optional[str] = None,
         candidate_id: Optional[str] = None,
         exam_id: Optional[str] = None,
         subject_id: Optional[str] = None,
@@ -58,9 +56,7 @@ class ExamScoreHistoryService:
             limit: Maximum number of records to return
             search: Optional search term for filtering
             score_id: Optional filter by score ID
-            change_type: Optional filter by change type
             changed_by: Optional filter by user who made the change
-            review_id: Optional filter by review ID
             candidate_id: Optional filter by candidate ID
             exam_id: Optional filter by exam ID
             subject_id: Optional filter by subject ID
@@ -75,12 +71,8 @@ class ExamScoreHistoryService:
             filters["search"] = search
         if score_id:
             filters["score_id"] = score_id
-        if change_type:
-            filters["change_type"] = change_type
         if changed_by:
             filters["changed_by"] = changed_by
-        if review_id:
-            filters["review_id"] = review_id
         if candidate_id:
             filters["candidate_id"] = candidate_id
         if exam_id:
@@ -205,9 +197,7 @@ class ExamScoreHistoryService:
             new_score=new_score,
             changed_by=changed_by,
             change_type=change_type,
-            reason=reason,
-            review_id=review_id,
-            metadata=metadata
+            reason=reason
         )
     
     async def track_score_creation(

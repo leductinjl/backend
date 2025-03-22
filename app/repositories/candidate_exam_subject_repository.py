@@ -36,6 +36,44 @@ class CandidateExamSubjectRepository:
         self.db = db
         self.logger = logging.getLogger(__name__)
     
+    def _enrich_candidate_exam_subject_data(self, candidate_exam_subject):
+        """
+        Enrich candidate exam subject with related data for API response.
+        
+        Args:
+            candidate_exam_subject: CandidateExamSubject object with loaded relationships
+            
+        Returns:
+            CandidateExamSubject with additional attributes for related entities
+        """
+        if candidate_exam_subject is None:
+            return None
+            
+        # Add candidate info if available
+        if candidate_exam_subject.candidate_exam and candidate_exam_subject.candidate_exam.candidate:
+            candidate = candidate_exam_subject.candidate_exam.candidate
+            candidate_exam_subject.candidate_id = candidate.candidate_id
+            candidate_exam_subject.candidate_name = candidate.full_name
+        
+        # Add exam info if available through candidate_exam
+        if candidate_exam_subject.candidate_exam and candidate_exam_subject.candidate_exam.exam:
+            exam = candidate_exam_subject.candidate_exam.exam
+            candidate_exam_subject.exam_id = exam.exam_id
+            candidate_exam_subject.exam_name = exam.exam_name
+        # If exam info not available through candidate_exam, try through exam_subject
+        elif candidate_exam_subject.exam_subject and candidate_exam_subject.exam_subject.exam:
+            exam = candidate_exam_subject.exam_subject.exam
+            candidate_exam_subject.exam_id = exam.exam_id
+            candidate_exam_subject.exam_name = exam.exam_name
+        
+        # Add subject info if available
+        if candidate_exam_subject.exam_subject and candidate_exam_subject.exam_subject.subject:
+            subject = candidate_exam_subject.exam_subject.subject
+            candidate_exam_subject.subject_id = subject.subject_id
+            candidate_exam_subject.subject_name = subject.subject_name
+            
+        return candidate_exam_subject
+    
     async def get_all(
         self,
         skip: int = 0,
@@ -120,7 +158,10 @@ class CandidateExamSubjectRepository:
             result = await self.db.execute(query)
             candidate_exam_subjects = result.scalars().unique().all()
             
-            return candidate_exam_subjects, total
+            # Enrich with related data
+            enriched_results = [self._enrich_candidate_exam_subject_data(ces) for ces in candidate_exam_subjects]
+            
+            return enriched_results, total
             
         except Exception as e:
             self.logger.error(f"Error getting candidate exam subjects: {str(e)}")
@@ -153,7 +194,10 @@ class CandidateExamSubjectRepository:
             )
             
             result = await self.db.execute(query)
-            return result.scalars().first()
+            candidate_exam_subject = result.scalars().first()
+            
+            # Enrich with related data
+            return self._enrich_candidate_exam_subject_data(candidate_exam_subject)
             
         except Exception as e:
             self.logger.error(f"Error getting candidate exam subject with ID {candidate_exam_subject_id}: {str(e)}")
@@ -213,7 +257,10 @@ class CandidateExamSubjectRepository:
             result = await self.db.execute(query)
             candidate_exam_subjects = result.scalars().unique().all()
             
-            return candidate_exam_subjects, total
+            # Enrich with related data
+            enriched_results = [self._enrich_candidate_exam_subject_data(ces) for ces in candidate_exam_subjects]
+            
+            return enriched_results, total
             
         except Exception as e:
             self.logger.error(f"Error getting candidate exam subjects for candidate {candidate_id}: {str(e)}")
@@ -269,7 +316,10 @@ class CandidateExamSubjectRepository:
             result = await self.db.execute(query)
             candidate_exam_subjects = result.scalars().unique().all()
             
-            return candidate_exam_subjects, total
+            # Enrich with related data
+            enriched_results = [self._enrich_candidate_exam_subject_data(ces) for ces in candidate_exam_subjects]
+            
+            return enriched_results, total
             
         except Exception as e:
             self.logger.error(f"Error getting candidate exam subjects for candidate exam {candidate_exam_id}: {str(e)}")
@@ -324,7 +374,10 @@ class CandidateExamSubjectRepository:
             result = await self.db.execute(query)
             candidate_exam_subjects = result.scalars().unique().all()
             
-            return candidate_exam_subjects, total
+            # Enrich with related data
+            enriched_results = [self._enrich_candidate_exam_subject_data(ces) for ces in candidate_exam_subjects]
+            
+            return enriched_results, total
             
         except Exception as e:
             self.logger.error(f"Error getting candidate exam subjects for exam subject {exam_subject_id}: {str(e)}")

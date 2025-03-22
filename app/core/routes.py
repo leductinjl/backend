@@ -26,6 +26,7 @@ from app.api.controllers.exam_location_mapping_router import router as exam_loca
 from app.api.controllers.exam_subject_router import router as exam_subject_router
 from app.api.controllers.exam_schedule_router import router as exam_schedule_router
 from app.api.controllers.candidate_exam_router import router as candidate_exam_router
+from app.api.controllers.candidate_exam_subject_router import router as candidate_exam_subject_router
 from app.api.controllers.candidate_credential_router import router as candidate_credential_router
 from app.api.controllers.exam_score_router import router as exam_score_router
 from app.api.controllers.score_review_router import router as score_review_router
@@ -101,6 +102,7 @@ def setup_routes(app: FastAPI):
         (exam_subject_router, "Exam Subjects"),
         (exam_schedule_router, "Exam Schedules"),
         (candidate_exam_router, "Candidate Exams"),
+        (candidate_exam_subject_router, "Candidate Exam Subjects"),
         (candidate_credential_router, "Candidate Credentials"),
         (exam_score_router, "Exam Scores"),
         (score_review_router, "Score Reviews"),

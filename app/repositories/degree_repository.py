@@ -127,7 +127,8 @@ class DegreeRepository:
         """
         try:
             query = select(Degree).options(
-                joinedload(Degree.major)
+                joinedload(Degree.major),
+                joinedload(Degree.education_history).joinedload(EducationHistory.candidate)
             ).where(Degree.degree_id == degree_id)
             
             result = await self.db_session.execute(query)

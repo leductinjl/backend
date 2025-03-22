@@ -24,7 +24,8 @@ class ExamScoreService:
         self, 
         repository: ExamScoreRepository,
         candidate_exam_repository: Optional[CandidateExamRepository] = None,
-        exam_subject_repository: Optional[ExamSubjectRepository] = None
+        exam_subject_repository: Optional[ExamSubjectRepository] = None,
+        history_service = None
     ):
         """
         Initialize the service with repositories.
@@ -33,10 +34,12 @@ class ExamScoreService:
             repository: Repository for exam score data access
             candidate_exam_repository: Repository for candidate exam data access
             exam_subject_repository: Repository for exam subject data access
+            history_service: Service for tracking score history
         """
         self.repository = repository
         self.candidate_exam_repository = candidate_exam_repository
         self.exam_subject_repository = exam_subject_repository
+        self.history_service = history_service
     
     async def get_all_scores(
         self, 
@@ -178,13 +181,17 @@ class ExamScoreService:
             logger.error(f"Exam score with ID {score_id} not found")
             return None
         
-        # If score is being updated and was previously null, set graded_at to now
-        if "score" in score_data and score_data["score"] is not None and existing_score_dict["score"] is None:
-            score_data["graded_at"] = datetime.now()
-            
-            # Also set status to GRADED if not specified in the update
-            if "status" not in score_data:
-                score_data["status"] = "graded"
+        # Track score changes if score is being updated
+        previous_score = None
+        if "score" in score_data and score_data["score"] is not None:
+            previous_score = existing_score_dict.get("score")
+            # If score is changing and was previously null, set graded_at to now
+            if existing_score_dict["score"] is None:
+                score_data["graded_at"] = datetime.now()
+                
+                # Also set status to GRADED if not specified in the update
+                if "status" not in score_data:
+                    score_data["status"] = "graded"
         
         # Remove any empty fields
         cleaned_data = {k: v for k, v in score_data.items() if v is not None}
@@ -192,11 +199,25 @@ class ExamScoreService:
         # Don't update if no fields to update
         if not cleaned_data:
             # Just return the existing record without database operation
-            query = select(ExamScore).filter(ExamScore.score_id == score_id)
+            query = select(ExamScore).filter(ExamScore.exam_score_id == score_id)
             result = await self.repository.db.execute(query)
             return result.scalar_one_or_none()
         
-        return await self.repository.update(score_id, cleaned_data)
+        # Update the score
+        updated_score = await self.repository.update(score_id, cleaned_data)
+        
+        # Create history entry if score changed and history service is available
+        if self.history_service and "score" in cleaned_data and previous_score != cleaned_data["score"]:
+            await self.history_service.track_score_change(
+                score_id=score_id,
+                previous_score=previous_score,
+                new_score=cleaned_data["score"],
+                changed_by=cleaned_data.get("graded_by"),
+                change_type="updated",
+                reason=f"Score updated from {previous_score} to {cleaned_data['score']}"
+            )
+        
+        return updated_score
     
     async def delete_score(self, score_id: str) -> bool:
         """

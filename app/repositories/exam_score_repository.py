@@ -125,6 +125,7 @@ class ExamScoreRepository:
             score_dict = {
                 "exam_score_id": score.exam_score_id,
                 "exam_subject_id": score.exam_subject_id,
+                "candidate_exam_subject_id": score.candidate_exam_subject_id,
                 "score": score.score,
                 "status": score.status,
                 "graded_by": score.graded_by,
@@ -188,6 +189,7 @@ class ExamScoreRepository:
         return {
             "exam_score_id": score.exam_score_id,
             "exam_subject_id": score.exam_subject_id,
+            "candidate_exam_subject_id": score.candidate_exam_subject_id,
             "score": score.score,
             "status": score.status,
             "graded_by": score.graded_by,
@@ -242,6 +244,7 @@ class ExamScoreRepository:
             score_dict = {
                 "exam_score_id": score.exam_score_id,
                 "exam_subject_id": score.exam_subject_id,
+                "candidate_exam_subject_id": score.candidate_exam_subject_id,
                 "score": score.score,
                 "status": score.status,
                 "graded_by": score.graded_by,
@@ -296,6 +299,7 @@ class ExamScoreRepository:
             score_dict = {
                 "exam_score_id": score.exam_score_id,
                 "exam_subject_id": score.exam_subject_id,
+                "candidate_exam_subject_id": score.candidate_exam_subject_id,
                 "score": score.score,
                 "status": score.status,
                 "graded_by": score.graded_by,

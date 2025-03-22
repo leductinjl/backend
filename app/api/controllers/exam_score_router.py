@@ -21,7 +21,9 @@ from app.api.dto.exam_score import (
 from app.repositories.exam_score_repository import ExamScoreRepository
 from app.repositories.candidate_exam_repository import CandidateExamRepository
 from app.repositories.exam_subject_repository import ExamSubjectRepository
+from app.repositories.exam_score_history_repository import ExamScoreHistoryRepository
 from app.services.exam_score_service import ExamScoreService
+from app.services.exam_score_history_service import ExamScoreHistoryService
 
 router = APIRouter(
     prefix="/exam-scores",
@@ -42,7 +44,17 @@ async def get_exam_score_service(db: AsyncSession = Depends(get_db)):
     repository = ExamScoreRepository(db)
     candidate_exam_repository = CandidateExamRepository(db)
     exam_subject_repository = ExamSubjectRepository(db)
-    return ExamScoreService(repository, candidate_exam_repository, exam_subject_repository)
+    
+    # Create history service for tracking score changes
+    history_repository = ExamScoreHistoryRepository(db)
+    history_service = ExamScoreHistoryService(history_repository)
+    
+    return ExamScoreService(
+        repository, 
+        candidate_exam_repository, 
+        exam_subject_repository,
+        history_service
+    )
 
 @router.get("/", response_model=ExamScoreListResponse, summary="List Exam Scores")
 async def get_exam_scores(
@@ -215,15 +227,39 @@ async def update_exam_score(
     Raises:
         HTTPException: If the exam score is not found
     """
-    updated_score = await service.update_score(
-        score_id, 
-        score.model_dump(exclude_unset=True) if score else {}
-    )
+    # Get existing score to check if we're changing the score value
+    existing_score = await service.get_score_by_id(score_id)
+    if not existing_score:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Exam score with ID {score_id} not found"
+        )
+    
+    # Extract the data from the request
+    score_data = score.model_dump(exclude_unset=True) if score else {}
+    
+    # Perform the update
+    updated_score = await service.update_score(score_id, score_data)
     if not updated_score:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Exam score with ID {score_id} not found"
         )
+    
+    # Manually create history record if score changed and history service is available
+    if "score" in score_data and service.history_service:
+        old_score_value = existing_score.get("score")
+        new_score_value = score_data.get("score")
+        
+        if old_score_value != new_score_value:
+            await service.history_service.track_score_change(
+                score_id=score_id,
+                previous_score=old_score_value,
+                new_score=new_score_value,
+                changed_by=score_data.get("graded_by"),
+                change_type="updated",
+                reason=f"Score updated from {old_score_value} to {new_score_value}"
+            )
     
     return updated_score
 
@@ -247,15 +283,39 @@ async def partially_update_exam_score(
     Raises:
         HTTPException: If the exam score is not found
     """
-    updated_score = await service.update_score(
-        score_id, 
-        score.model_dump(exclude_unset=True, exclude_none=True) if score else {}
-    )
+    # Get existing score to check if we're changing the score value
+    existing_score = await service.get_score_by_id(score_id)
+    if not existing_score:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Exam score with ID {score_id} not found"
+        )
+    
+    # Extract the data from the request
+    score_data = score.model_dump(exclude_unset=True, exclude_none=True) if score else {}
+    
+    # Perform the update
+    updated_score = await service.update_score(score_id, score_data)
     if not updated_score:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Exam score with ID {score_id} not found"
         )
+    
+    # Manually create history record if score changed and history service is available
+    if "score" in score_data and service.history_service:
+        old_score_value = existing_score.get("score")
+        new_score_value = score_data.get("score")
+        
+        if old_score_value != new_score_value:
+            await service.history_service.track_score_change(
+                score_id=score_id,
+                previous_score=old_score_value,
+                new_score=new_score_value,
+                changed_by=score_data.get("graded_by"),
+                change_type="updated",
+                reason=f"Score updated from {old_score_value} to {new_score_value}"
+            )
     
     return updated_score
 
@@ -310,11 +370,31 @@ async def grade_exam_score(
     Raises:
         HTTPException: If the exam score is not found
     """
+    # Get existing score to check if we're changing the score value
+    existing_score = await service.get_score_by_id(score_id)
+    if not existing_score:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Exam score with ID {score_id} not found"
+        )
+    
+    # Perform the update
     updated_score = await service.grade_score(score_id, score_value, graded_by, notes)
     if not updated_score:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Exam score with ID {score_id} not found"
+        )
+    
+    # Manually create history record if score changed and history service is available
+    if service.history_service and existing_score.get("score") != score_value:
+        await service.history_service.track_score_change(
+            score_id=score_id,
+            previous_score=existing_score.get("score"),
+            new_score=score_value,
+            changed_by=graded_by,
+            change_type="graded",
+            reason=f"Score graded from {existing_score.get('score')} to {score_value}"
         )
     
     return updated_score

@@ -256,22 +256,20 @@ class ScoreReviewService:
                 return None
                 
             # Create history entry if history repository is available
-            if self.history_repository and updated_score:
+            if self.history_repository:
+                logger.info(f"Creating history entry for score review approval {score_review_id}")
+                
                 # Create a history entry for the score change
-                await self.history_repository.create_from_score_change(
+                history_entry = await self.history_repository.create_from_score_change(
                     score_id=review["score_id"],
                     previous_score=original_score_value,
                     new_score=review["reviewed_score"],
                     changed_by=None,  # Could be set from request context if available
-                    change_type="REVIEW_APPROVED",
-                    reason=resolution_notes or f"Score review {score_review_id} approved",
-                    review_id=score_review_id,
-                    metadata={
-                        "review_status": "approved",
-                        "original_score": str(original_score_value) if original_score_value else None,
-                        "reviewed_score": str(review["reviewed_score"]) if review["reviewed_score"] else None,
-                    }
+                    change_type="revised",
+                    reason=resolution_notes or f"Score review {score_review_id} approved"
                 )
+                
+                logger.info(f"Created history entry: {history_entry and history_entry.history_id}")
         
         # Update the review status
         update_data = {
@@ -336,7 +334,7 @@ class ScoreReviewService:
             "review_status": "completed",
             "reviewed_score": Decimal(str(reviewed_score)),
             "review_result": review_result,
-            "review_date": datetime.now().date().isoformat()
+            "review_date": datetime.now().date()
         }
         
         updated_review = await self.repository.update(score_review_id, update_data)
@@ -345,42 +343,38 @@ class ScoreReviewService:
         
         # Update the exam score if necessary
         score_id = review.get("score_id")
-        if score_id and review_result == "approved":
+        updated_score = None
+        
+        if score_id:
+            # Get the original score
             score = await self.exam_score_repository.get_by_id(score_id)
             if score:
                 # Get the original score value for history tracking
                 original_score_value = score.get("score")
                 
-                # Update the score
-                await self.exam_score_repository.update(
-                    score_id, 
-                    {
+                # Only update score if review is approved
+                if review_result.lower() == "approved":
+                    # Update the score
+                    score_update = {
                         "score": Decimal(str(reviewed_score)),
-                        "last_modified_at": datetime.now().isoformat(),
-                        "modified_reason": f"Score updated due to review {score_review_id}"
+                        "status": "revised"
                     }
-                )
-                updated_score = await self.exam_score_repository.get_by_id(score_id)
+                    
+                    updated_score = await self.exam_score_repository.update(score_id, score_update)
                 
-                # Create history entry if history repository is available
-                if self.history_repository and updated_score:
-                    # Create a history entry for the score change
-                    await self.history_repository.create_from_score_change(
+                # Create history entry regardless of approval status
+                if self.history_repository:
+                    logger.info(f"Creating history entry for score review {score_review_id}")
+                    
+                    history_entry = await self.history_repository.create_from_score_change(
                         score_id=score_id,
                         previous_score=original_score_value,
-                        new_score=reviewed_score,
+                        new_score=reviewed_score if review_result.lower() == "approved" else original_score_value,
                         changed_by=None,  # Could be set from request context if available
-                        change_type="REVIEW_COMPLETED",
-                        reason=f"Score review {score_review_id} completed with result: {review_result}",
-                        review_id=score_review_id,
-                        metadata={
-                            "review_status": "completed",
-                            "review_result": review_result,
-                            "original_score": str(original_score_value) if original_score_value else None,
-                            "reviewed_score": str(reviewed_score)
-                        }
+                        change_type="revised",
+                        reason=f"Score review {score_review_id} completed: {review_result}"
                     )
-                
-                return {"review": updated_review, "score": updated_score}
+                    
+                    logger.info(f"Created history entry: {history_entry and history_entry.history_id}")
         
-        return {"review": updated_review, "score": None} 
+        return {"review": updated_review, "score": updated_score or score} 

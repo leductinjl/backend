@@ -65,7 +65,7 @@ class ScoreReviewRepository:
                 search_term = f"%{filters['search']}%"
                 # Join all needed tables explicitly for searching
                 query = query.join(
-                    ExamScore, ScoreReview.score_id == ExamScore.score_id
+                    ExamScore, ScoreReview.score_id == ExamScore.exam_score_id
                 ).join(
                     ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id
                 ).join(
@@ -161,7 +161,7 @@ class ScoreReviewRepository:
             ).join(
                 ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
             ).filter(
-                ExamScore.score_id == review.score_id
+                ExamScore.exam_score_id == review.score_id
             )
             exam_result = await self.db.execute(exam_query)
             exam = exam_result.scalar_one_or_none()
@@ -172,7 +172,7 @@ class ScoreReviewRepository:
             ).join(
                 ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
             ).filter(
-                ExamScore.score_id == review.score_id
+                ExamScore.exam_score_id == review.score_id
             )
             subject_result = await self.db.execute(subject_query)
             subject = subject_result.scalar_one_or_none()
@@ -187,10 +187,14 @@ class ScoreReviewRepository:
             ).join(
                 ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
             ).filter(
-                ExamScore.score_id == review.score_id
-            )
+                ExamScore.exam_score_id == review.score_id
+            ).distinct()
+            
             candidate_result = await self.db.execute(candidate_query)
-            candidate = candidate_result.scalar_one_or_none()
+            candidate = candidate_result.first()
+            
+            if candidate:
+                candidate = candidate[0]  # Extract the Candidate object from the row
             
             # Add related entities to the score for use in _entity_to_dict
             review.score._exam = exam
@@ -232,7 +236,7 @@ class ScoreReviewRepository:
         ).join(
             ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
         ).filter(
-            ExamScore.score_id == score_id
+            ExamScore.exam_score_id == score_id
         )
         exam_result = await self.db.execute(exam_query)
         exam = exam_result.scalar_one_or_none()
@@ -243,7 +247,7 @@ class ScoreReviewRepository:
         ).join(
             ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
         ).filter(
-            ExamScore.score_id == score_id
+            ExamScore.exam_score_id == score_id
         )
         subject_result = await self.db.execute(subject_query)
         subject = subject_result.scalar_one_or_none()
@@ -258,10 +262,14 @@ class ScoreReviewRepository:
         ).join(
             ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
         ).filter(
-            ExamScore.score_id == score_id
-        )
+            ExamScore.exam_score_id == score_id
+        ).distinct()
+        
         candidate_result = await self.db.execute(candidate_query)
-        candidate = candidate_result.scalar_one_or_none()
+        candidate = candidate_result.first()
+        
+        if candidate:
+            candidate = candidate[0]  # Extract the Candidate object from the row
         
         # Add related entities to each review's score object
         for review in reviews:
@@ -315,7 +323,7 @@ class ScoreReviewRepository:
         """
         # First, get all the score IDs related to this candidate
         score_ids_query = (
-            select(ExamScore.score_id)
+            select(ExamScore.exam_score_id)
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
             .join(Exam, ExamSubject.exam_id == Exam.exam_id)
             .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
@@ -351,7 +359,7 @@ class ScoreReviewRepository:
                 ).join(
                     ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
                 ).filter(
-                    ExamScore.score_id == review.score_id
+                    ExamScore.exam_score_id == review.score_id
                 )
                 exam_result = await self.db.execute(exam_query)
                 exam = exam_result.scalar_one_or_none()
@@ -362,7 +370,7 @@ class ScoreReviewRepository:
                 ).join(
                     ExamScore, ExamSubject.exam_subject_id == ExamScore.exam_subject_id
                 ).filter(
-                    ExamScore.score_id == review.score_id
+                    ExamScore.exam_score_id == review.score_id
                 )
                 subject_result = await self.db.execute(subject_query)
                 subject = subject_result.scalar_one_or_none()
@@ -528,7 +536,7 @@ class ScoreReviewRepository:
                 review_dict["subject"] = {
                     "subject_id": subject.subject_id,
                     "subject_code": subject.subject_code,
-                    "name": subject.name
+                    "name": subject.subject_name
                 }
         
         return review_dict 

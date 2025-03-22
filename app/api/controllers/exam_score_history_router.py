@@ -46,9 +46,7 @@ async def get_score_history_entries(
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
     search: Optional[str] = Query(None, description="Search term for candidate name/code, exam name, or subject name/code"),
     score_id: Optional[str] = Query(None, description="Filter by exam score ID"),
-    change_type: Optional[ChangeType] = Query(None, description="Filter by change type"),
     changed_by: Optional[str] = Query(None, description="Filter by user who made the change"),
-    review_id: Optional[str] = Query(None, description="Filter by review ID"),
     candidate_id: Optional[str] = Query(None, description="Filter by candidate ID"),
     exam_id: Optional[str] = Query(None, description="Filter by exam ID"),
     subject_id: Optional[str] = Query(None, description="Filter by subject ID"),
@@ -64,9 +62,7 @@ async def get_score_history_entries(
         limit: Maximum number of records to return
         search: Search term for candidate name/code, exam name, or subject name/code
         score_id: Filter by exam score ID
-        change_type: Filter by change type
         changed_by: Filter by user who made the change
-        review_id: Filter by review ID
         candidate_id: Filter by candidate ID
         exam_id: Filter by exam ID
         subject_id: Filter by subject ID
@@ -82,9 +78,7 @@ async def get_score_history_entries(
         limit=limit,
         search=search,
         score_id=score_id,
-        change_type=change_type.value if change_type else None,
         changed_by=changed_by,
-        review_id=review_id,
         candidate_id=candidate_id,
         exam_id=exam_id,
         subject_id=subject_id,
