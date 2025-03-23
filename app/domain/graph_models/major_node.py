@@ -4,6 +4,13 @@ Major Node model.
 This module defines the MajorNode class for representing Major entities in the Neo4j graph.
 """
 
+from app.infrastructure.ontology.ontology import RELATIONSHIPS, CLASSES
+
+# Define relationship constants
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+OFFERS_MAJOR_REL = RELATIONSHIPS["OFFERS_MAJOR"]["type"]
+STUDIES_MAJOR_REL = RELATIONSHIPS["STUDIES_MAJOR"]["type"]
+
 class MajorNode:
     """
     Model for Major node in Neo4j Knowledge Graph.
@@ -32,6 +39,7 @@ class MajorNode:
         return """
         MERGE (m:Major:OntologyInstance {major_id: $major_id})
         ON CREATE SET
+            m:Thing,
             m.major_name = $major_name,
             m.name = $name,
             m.major_code = $major_code,
@@ -45,6 +53,29 @@ class MajorNode:
             m.updated_at = datetime()
         RETURN m
         """
+    
+    def create_instance_of_relationship_query(self):
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node Major và class definition.
+        
+        Returns:
+            Query tạo quan hệ INSTANCE_OF
+        """
+        return f"""
+        MATCH (m:Major:OntologyInstance {{major_id: $major_id}})
+        MATCH (class:OntologyClass {{id: 'major-class'}})
+        MERGE (m)-[:{INSTANCE_OF_REL}]->(class)
+        """
+    
+    def create_relationships_query(self):
+        """
+        Tạo Cypher query để thiết lập các mối quan hệ giữa Major và các node khác.
+        Phương thức này là placeholder và sẽ được gọi từ repository nếu cần.
+        
+        Returns:
+            Empty string vì các mối quan hệ sẽ được tạo từ repository
+        """
+        return ""
     
     def to_dict(self):
         """

@@ -10,9 +10,13 @@ from typing import Dict, List, Optional, Union
 from neo4j import Driver
 from neo4j.exceptions import Neo4jError
 
-from app.domain.graph_models.exam_room_node import ExamRoomNode
+from app.domain.graph_models.exam_room_node import ExamRoomNode, INSTANCE_OF_REL, LOCATED_IN_REL
+from app.infrastructure.ontology.ontology import RELATIONSHIPS
 
 logger = logging.getLogger(__name__)
+
+# Define relationship constants
+HELD_IN_REL = RELATIONSHIPS["HELD_AT"]["type"]  # Using HELD_AT since there's no HELD_IN in ontology
 
 class ExamRoomGraphRepository:
     """
@@ -70,6 +74,16 @@ class ExamRoomGraphRepository:
                         **room.to_dict()
                     )
                 )
+                
+                # Tạo mối quan hệ INSTANCE_OF nếu có phương thức
+                if hasattr(room, 'create_instance_of_relationship_query'):
+                    session.execute_write(
+                        lambda tx: tx.run(
+                            room.create_instance_of_relationship_query(),
+                            **room.to_dict()
+                        )
+                    )
+                    logger.info(f"Created INSTANCE_OF relationship for exam room {room.room_id}")
                 
                 return ExamRoomNode.from_record(result)
         except Neo4jError as e:
@@ -146,8 +160,8 @@ class ExamRoomGraphRepository:
         Returns:
             Danh sách các ExamRoomNode tại địa điểm
         """
-        query = """
-        MATCH (r:ExamRoom)-[:LOCATED_IN]->(l:ExamLocation {location_id: $location_id})
+        query = f"""
+        MATCH (r:ExamRoom)-[:{LOCATED_IN_REL}]->(l:ExamLocation {{location_id: $location_id}})
         RETURN r
         """
         
@@ -174,8 +188,8 @@ class ExamRoomGraphRepository:
         Returns:
             Danh sách các thông tin kỳ thi
         """
-        query = """
-        MATCH (e:Exam)-[:HELD_IN]->(r:ExamRoom {room_id: $room_id})
+        query = f"""
+        MATCH (e:Exam)-[:{HELD_IN_REL}]->(r:ExamRoom {{room_id: $room_id}})
         RETURN e
         """
         
@@ -228,10 +242,10 @@ class ExamRoomGraphRepository:
         Returns:
             True nếu thành công, False nếu lỗi
         """
-        query = """
-        MATCH (r:ExamRoom {room_id: $room_id})
-        MATCH (e:Exam {exam_id: $exam_id})
-        MERGE (e)-[:HELD_IN]->(r)
+        query = f"""
+        MATCH (r:ExamRoom {{room_id: $room_id}})
+        MATCH (e:Exam {{exam_id: $exam_id}})
+        MERGE (e)-[:{HELD_IN_REL}]->(r)
         RETURN r, e
         """
         
@@ -240,7 +254,10 @@ class ExamRoomGraphRepository:
                 result = session.execute_write(
                     lambda tx: tx.run(query, room_id=room_id, exam_id=exam_id).data()
                 )
-                return len(result) > 0
+                if len(result) > 0:
+                    logger.info(f"Added {HELD_IN_REL} relationship between exam {exam_id} and room {room_id}")
+                    return True
+                return False
         except Neo4jError as e:
             logger.error(f"Error adding exam relationship: {e}")
             return False

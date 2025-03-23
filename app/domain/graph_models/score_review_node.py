@@ -7,6 +7,15 @@ This module defines the ScoreReviewNode class for representing ScoreReview entit
 from datetime import datetime
 from typing import Optional, Dict, Any
 
+from app.infrastructure.ontology.ontology import RELATIONSHIPS
+
+# Import specific relationships
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+REQUESTS_REVIEW_REL = RELATIONSHIPS["REQUESTS_REVIEW"]["type"]
+FOR_SUBJECT_REL = RELATIONSHIPS["FOR_SUBJECT"]["type"]
+IN_EXAM_REL = RELATIONSHIPS["IN_EXAM"]["type"]
+REVIEWS_REL = RELATIONSHIPS["REVIEWS"]["type"]
+
 class ScoreReviewNode:
     """
     Model for ScoreReview node in Neo4j Knowledge Graph.
@@ -61,7 +70,7 @@ class ScoreReviewNode:
         và các thuộc tính được định nghĩa trong ontology.
         """
         return """
-        MERGE (r:ScoreReview {review_id: $review_id})
+        MERGE (r:ScoreReview:OntologyInstance {review_id: $review_id})
         ON CREATE SET
             r:Thing, 
             r.review_name = $review_name,
@@ -90,6 +99,19 @@ class ScoreReviewNode:
         RETURN r
         """
     
+    def create_instance_of_relationship_query(self):
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node ScoreReview và class definition.
+        
+        Returns:
+            Query tạo quan hệ INSTANCE_OF
+        """
+        return f"""
+        MATCH (r:ScoreReview:OntologyInstance {{review_id: $review_id}})
+        MATCH (class:OntologyClass {{id: 'score-review-class'}})
+        MERGE (r)-[:{INSTANCE_OF_REL}]->(class)
+        """
+    
     def create_relationships_query(self):
         """
         Tạo Cypher query để thiết lập các mối quan hệ của ScoreReview.
@@ -97,34 +119,38 @@ class ScoreReviewNode:
         Returns:
             Query tạo quan hệ với các node khác
         """
-        return """
+        return f"""
         // Tạo quan hệ với Score nếu có
-        OPTIONAL MATCH (s:Score {score_id: $score_id})
-        WITH s
+        MATCH (r:ScoreReview {{review_id: $review_id}})
+        OPTIONAL MATCH (s:Score {{score_id: $score_id}})
+        WITH r, s
         WHERE s IS NOT NULL
-        MATCH (r:ScoreReview {review_id: $review_id})
-        MERGE (r)-[:REVIEWS]->(s)
+        MERGE (r)-[:{REVIEWS_REL} {{
+            review_date: $request_date,
+            review_status: $status,
+            reviewer: $reviewer
+        }}]->(s)
         
         // Tạo quan hệ với Candidate nếu có
         WITH r
-        OPTIONAL MATCH (c:Candidate {candidate_id: $candidate_id})
+        OPTIONAL MATCH (c:Candidate {{candidate_id: $candidate_id}})
         WITH r, c
         WHERE c IS NOT NULL
-        MERGE (c)-[:REQUESTED]->(r)
+        MERGE (c)-[:{REQUESTS_REVIEW_REL}]->(r)
         
         // Tạo quan hệ với Subject nếu có
         WITH r
-        OPTIONAL MATCH (s:Subject {subject_id: $subject_id})
+        OPTIONAL MATCH (s:Subject {{subject_id: $subject_id}})
         WITH r, s
         WHERE s IS NOT NULL
-        MERGE (r)-[:FOR_SUBJECT]->(s)
+        MERGE (r)-[:{FOR_SUBJECT_REL}]->(s)
         
         // Tạo quan hệ với Exam nếu có
         WITH r
-        OPTIONAL MATCH (e:Exam {exam_id: $exam_id})
+        OPTIONAL MATCH (e:Exam {{exam_id: $exam_id}})
         WITH r, e
         WHERE e IS NOT NULL
-        MERGE (r)-[:IN_EXAM]->(e)
+        MERGE (r)-[:{IN_EXAM_REL}]->(e)
         """
     
     def to_dict(self):

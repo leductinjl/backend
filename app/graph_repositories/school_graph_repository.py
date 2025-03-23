@@ -4,9 +4,13 @@ School Graph Repository module.
 This module provides methods for interacting with School nodes in Neo4j.
 """
 
-from app.domain.graph_models.school_node import SchoolNode
-from app.infrastructure.ontology.ontology import RELATIONSHIPS
+from typing import Dict, List, Optional, Union
 import logging
+
+from app.domain.graph_models.school_node import (
+    SchoolNode, INSTANCE_OF_REL, OFFERS_MAJOR_REL, STUDIES_AT_REL, ISSUED_BY_REL
+)
+from app.infrastructure.ontology.ontology import RELATIONSHIPS
 
 logger = logging.getLogger(__name__)
 
@@ -33,45 +37,38 @@ class SchoolGraphRepository:
             bool: True if operation successful, False otherwise
         """
         try:
-            # Ensure we have a dictionary
-            params = school.to_dict() if hasattr(school, 'to_dict') else school
+            # Convert to SchoolNode if it's a dictionary
+            if isinstance(school, dict):
+                school = SchoolNode(
+                    school_id=school.get("school_id"),
+                    school_name=school.get("school_name"),
+                    address=school.get("address"),
+                    type=school.get("type")
+                )
+            
+            # Get parameters for the query
+            params = school.to_dict()
             
             # Execute Cypher query to create/update school
             query = SchoolNode.create_query()
             result = await self.neo4j.execute_query(query, params)
             
             if result and len(result) > 0:
-                # Create IS_A relationship with School class
-                await self._create_is_a_relationship(params["school_id"])
+                # Create INSTANCE_OF relationship
+                if hasattr(school, 'create_instance_of_relationship_query'):
+                    await self.neo4j.execute_query(
+                        school.create_instance_of_relationship_query(),
+                        params
+                    )
+                    logger.info(f"Created INSTANCE_OF relationship for school {school.school_id}")
+                
                 logger.info(f"Successfully created/updated school {params['school_id']} in Neo4j")
                 return True
+            
+            logger.error(f"Failed to create/update school {params['school_id']} in Neo4j")
             return False
         except Exception as e:
             logger.error(f"Error creating/updating school in Neo4j: {e}", exc_info=True)
-            return False
-    
-    async def _create_is_a_relationship(self, school_id):
-        """
-        Create INSTANCE_OF relationship between School node and School class node.
-        
-        Args:
-            school_id: ID of the school node
-        """
-        try:
-            query = """
-            MATCH (instance:School:OntologyInstance {school_id: $school_id})
-            MATCH (class:School:OntologyClass {id: 'school-class'})
-            MERGE (instance)-[r:INSTANCE_OF]->(class)
-            RETURN r
-            """
-            params = {
-                "school_id": school_id
-            }
-            await self.neo4j.execute_query(query, params)
-            logger.info(f"Created INSTANCE_OF relationship for school {school_id}")
-            return True
-        except Exception as e:
-            logger.error(f"Error creating INSTANCE_OF relationship for school {school_id}: {e}")
             return False
     
     async def get_by_id(self, school_id):
@@ -90,10 +87,14 @@ class SchoolGraphRepository:
         """
         params = {"school_id": school_id}
         
-        result = await self.neo4j.execute_query(query, params)
-        if result and len(result) > 0:
-            return SchoolNode.from_record({"s": result[0][0]})
-        return None
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            if result and len(result) > 0:
+                return SchoolNode.from_record({"s": result[0][0]})
+            return None
+        except Exception as e:
+            logger.error(f"Error retrieving school by ID: {e}")
+            return None
     
     async def delete(self, school_id):
         """
@@ -113,9 +114,10 @@ class SchoolGraphRepository:
         
         try:
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Successfully deleted school {school_id}")
             return True
         except Exception as e:
-            print(f"Error deleting school from Neo4j: {e}")
+            logger.error(f"Error deleting school from Neo4j: {e}")
             return False
     
     async def add_offers_major_relationship(self, school_id, major_id, start_year=None):
@@ -135,14 +137,17 @@ class SchoolGraphRepository:
         params = {
             "school_id": school_id,
             "major_id": major_id,
-            "start_year": start_year
+            "start_year": start_year,
+            "is_active": True,
+            "additional_info": None
         }
         
         try:
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Added OFFERS_MAJOR relationship between School {school_id} and Major {major_id}")
             return True
         except Exception as e:
-            print(f"Error adding OFFERS_MAJOR relationship: {e}")
+            logger.error(f"Error adding OFFERS_MAJOR relationship: {e}")
             return False
     
     async def get_majors(self, school_id):
@@ -155,8 +160,8 @@ class SchoolGraphRepository:
         Returns:
             List of majors
         """
-        query = """
-        MATCH (s:School {school_id: $school_id})-[r:OFFERS_MAJOR]->(m:Major)
+        query = f"""
+        MATCH (s:School {{school_id: $school_id}})-[r:{OFFERS_MAJOR_REL}]->(m:Major)
         RETURN m, r.start_year as start_year
         """
         params = {"school_id": school_id}
@@ -178,7 +183,7 @@ class SchoolGraphRepository:
             
             return majors
         except Exception as e:
-            print(f"Error getting majors for school: {e}")
+            logger.error(f"Error getting majors for school {school_id}: {e}")
             return []
     
     async def get_students(self, school_id):
@@ -191,8 +196,8 @@ class SchoolGraphRepository:
         Returns:
             List of candidates with their education details
         """
-        query = """
-        MATCH (c:Candidate)-[r:STUDIES_AT]->(s:School {school_id: $school_id})
+        query = f"""
+        MATCH (c:Candidate)-[r:{STUDIES_AT_REL}]->(s:School {{school_id: $school_id}})
         RETURN c, r.start_year as start_year, r.end_year as end_year, 
                r.education_level as education_level
         """
@@ -218,5 +223,44 @@ class SchoolGraphRepository:
             
             return students
         except Exception as e:
-            print(f"Error getting students for school: {e}")
+            logger.error(f"Error getting students for school {school_id}: {e}")
+            return []
+            
+    async def get_issued_degrees(self, school_id):
+        """
+        Get all degrees issued by a school.
+        
+        Args:
+            school_id: ID of the school
+            
+        Returns:
+            List of degrees issued by the school
+        """
+        query = f"""
+        MATCH (d:Degree)-[r:{ISSUED_BY_REL}]->(s:School {{school_id: $school_id}})
+        RETURN d, r.issue_date as issue_date, r.education_level as education_level
+        """
+        params = {"school_id": school_id}
+        
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            degrees = []
+            
+            for record in result:
+                degree = record[0]
+                issue_date = record[1]
+                education_level = record[2]
+                
+                degrees.append({
+                    "degree_id": degree["degree_id"],
+                    "issue_date": issue_date,
+                    "education_level": education_level,
+                    "start_year": degree.get("start_year"),
+                    "end_year": degree.get("end_year"),
+                    "academic_performance": degree.get("academic_performance")
+                })
+            
+            return degrees
+        except Exception as e:
+            logger.error(f"Error getting degrees issued by school {school_id}: {e}")
             return [] 

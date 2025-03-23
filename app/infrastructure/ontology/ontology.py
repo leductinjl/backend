@@ -7,6 +7,48 @@ It includes class definitions and relationship types to model the domain knowled
 
 # ------------- CLASS DEFINITIONS -------------
 
+# System classes for ontology
+ONTOLOGY_INSTANCE = {
+    "label": "OntologyInstance",
+    "description": "Base class for all entity instances in the knowledge graph",
+    "properties": {
+        "created_at": "Creation timestamp",
+        "updated_at": "Last update timestamp"
+    },
+    "create_query": """
+    MERGE (i:OntologyInstance {id: $id})
+    ON CREATE SET
+        i.created_at = datetime(),
+        i.updated_at = datetime()
+    ON MATCH SET
+        i.updated_at = datetime()
+    RETURN i
+    """
+}
+
+ONTOLOGY_CLASS = {
+    "label": "OntologyClass",
+    "description": "Base class for all class definitions in the knowledge graph",
+    "properties": {
+        "id": "Class identifier",
+        "name": "Class name",
+        "description": "Class description"
+    },
+    "create_query": """
+    MERGE (c:OntologyClass {id: $id})
+    ON CREATE SET
+        c.name = $name,
+        c.description = $description,
+        c.created_at = datetime(),
+        c.updated_at = datetime()
+    ON MATCH SET
+        c.name = $name,
+        c.description = $description,
+        c.updated_at = datetime()
+    RETURN c
+    """
+}
+
 # Base class
 THING = {
     "label": "Thing",
@@ -237,37 +279,6 @@ EXAM_SCHEDULE = {
     """
 }
 
-EXAM_ATTEMPT = {
-    "label": "ExamAttempt",
-    "parent": "Thing",
-    "description": "Candidate's attempt at an exam",
-    "properties": {
-        "attempt_id": "Attempt unique identifier",
-        "attempt_number": "Attempt number",
-        "registration_number": "Registration number",
-        "registration_date": "Registration date",
-        "status": "Status of the attempt"
-    },
-    "create_query": """
-    MERGE (a:ExamAttempt {attempt_id: $attempt_id})
-    ON CREATE SET
-        a:Thing,
-        a.attempt_number = $attempt_number,
-        a.registration_number = $registration_number,
-        a.registration_date = $registration_date,
-        a.status = $status,
-        a.created_at = datetime(),
-        a.updated_at = datetime()
-    ON MATCH SET
-        a.attempt_number = $attempt_number,
-        a.registration_number = $registration_number,
-        a.registration_date = $registration_date,
-        a.status = $status,
-        a.updated_at = datetime()
-    RETURN a
-    """
-}
-
 SCORE = {
     "label": "Score",
     "parent": "Thing",
@@ -277,7 +288,8 @@ SCORE = {
         "score_value": "Numeric score value",
         "status": "Score status",
         "graded_by": "Person who graded",
-        "graded_at": "When it was graded"
+        "graded_at": "When it was graded",
+        "score_history": "Array of previous score values with change dates and reasons"
     },
     "create_query": """
     MERGE (s:Score {score_id: $score_id})
@@ -287,6 +299,7 @@ SCORE = {
         s.status = $status,
         s.graded_by = $graded_by,
         s.graded_at = $graded_at,
+        s.score_history = $score_history,
         s.created_at = datetime(),
         s.updated_at = datetime()
     ON MATCH SET
@@ -294,6 +307,7 @@ SCORE = {
         s.status = $status,
         s.graded_by = $graded_by,
         s.graded_at = $graded_at,
+        s.score_history = $score_history,
         s.updated_at = datetime()
     RETURN s
     """
@@ -330,40 +344,6 @@ SCORE_REVIEW = {
         r.review_date = $review_date,
         r.updated_at = datetime()
     RETURN r
-    """
-}
-
-SCORE_HISTORY = {
-    "label": "ScoreHistory",
-    "parent": "Thing",
-    "description": "History of score changes",
-    "properties": {
-        "history_id": "History unique identifier",
-        "previous_score": "Previous score value",
-        "new_score": "New score value",
-        "change_date": "Date of change",
-        "change_reason": "Reason for change",
-        "changed_by": "Person who made the change"
-    },
-    "create_query": """
-    MERGE (h:ScoreHistory {history_id: $history_id})
-    ON CREATE SET
-        h:Thing,
-        h.previous_score = $previous_score,
-        h.new_score = $new_score,
-        h.change_date = $change_date,
-        h.change_reason = $change_reason,
-        h.changed_by = $changed_by,
-        h.created_at = datetime(),
-        h.updated_at = datetime()
-    ON MATCH SET
-        h.previous_score = $previous_score,
-        h.new_score = $new_score,
-        h.change_date = $change_date,
-        h.change_reason = $change_reason,
-        h.changed_by = $changed_by,
-        h.updated_at = datetime()
-    RETURN h
     """
 }
 
@@ -610,6 +590,18 @@ MANAGEMENT_UNIT = {
 
 # ------------- RELATIONSHIP DEFINITIONS -------------
 
+# Instance-class relationship
+INSTANCE_OF = {
+    "type": "INSTANCE_OF",
+    "description": "Relationship between an instance and its class definition",
+    "create_query": """
+    MATCH (instance:OntologyInstance {id: $instance_id})
+    MATCH (class:OntologyClass {id: $class_id})
+    MERGE (instance)-[r:INSTANCE_OF]->(class)
+    RETURN r
+    """
+}
+
 # 1. Inheritance relationship
 IS_A = {
     "type": "IS_A",
@@ -629,7 +621,9 @@ STUDIES_AT = {
     "properties": {
         "start_year": "Starting year of study",
         "end_year": "Ending year of study",
-        "education_level": "Level of education"
+        "education_level": "Level of education",
+        "academic_performance": "Academic performance (Good, Excellent, etc.)",
+        "additional_info": "Additional information about the education"
     },
     "create_query": """
     MATCH (c:Candidate {candidate_id: $candidate_id})
@@ -637,7 +631,9 @@ STUDIES_AT = {
     MERGE (c)-[r:STUDIES_AT {
         start_year: $start_year,
         end_year: $end_year,
-        education_level: $education_level
+        education_level: $education_level,
+        academic_performance: $academic_performance,
+        additional_info: $additional_info
     }]->(s)
     RETURN r
     """
@@ -649,7 +645,11 @@ ATTENDS_EXAM = {
     "properties": {
         "registration_number": "Registration number",
         "registration_date": "Registration date",
-        "status": "Status of attendance"
+        "status": "Status of attendance",
+        "attempt_number": "Attempt number for this exam",
+        "attempt_date": "Date of the latest attempt",
+        "attempts": "Array of previous attempts with dates and results",
+        "result": "Result of the exam (pass/fail)"
     },
     "create_query": """
     MATCH (c:Candidate {candidate_id: $candidate_id})
@@ -657,19 +657,12 @@ ATTENDS_EXAM = {
     MERGE (c)-[r:ATTENDS_EXAM {
         registration_number: $registration_number,
         registration_date: $registration_date,
-        status: $status
+        status: $status,
+        attempt_number: $attempt_number,
+        attempt_date: $attempt_date,
+        attempts: $attempts,
+        result: $result
     }]->(e)
-    RETURN r
-    """
-}
-
-HAS_ATTEMPT = {
-    "type": "HAS_ATTEMPT",
-    "description": "Relationship between a Candidate and an ExamAttempt",
-    "create_query": """
-    MATCH (c:Candidate {candidate_id: $candidate_id})
-    MATCH (a:ExamAttempt {attempt_id: $attempt_id})
-    MERGE (c)-[r:HAS_ATTEMPT]->(a)
     RETURN r
     """
 }
@@ -677,10 +670,29 @@ HAS_ATTEMPT = {
 RECEIVES_SCORE = {
     "type": "RECEIVES_SCORE",
     "description": "Relationship between a Candidate and a Score",
+    "properties": {
+        "exam_id": "ID of the exam",
+        "exam_name": "Name of the exam",
+        "subject_id": "ID of the subject",
+        "subject_name": "Name of the subject",
+        "registration_status": "Status of the subject registration",
+        "registration_date": "Date of registration for the subject",
+        "is_required": "Whether this subject is mandatory for the candidate",
+        "exam_date": "Date of the exam for this subject"
+    },
     "create_query": """
     MATCH (c:Candidate {candidate_id: $candidate_id})
     MATCH (s:Score {score_id: $score_id})
-    MERGE (c)-[r:RECEIVES_SCORE]->(s)
+    MERGE (c)-[r:RECEIVES_SCORE {
+        exam_id: $exam_id,
+        exam_name: $exam_name,
+        subject_id: $subject_id,
+        subject_name: $subject_name,
+        registration_status: $registration_status,
+        registration_date: $registration_date,
+        is_required: $is_required,
+        exam_date: $exam_date
+    }]->(s)
     RETURN r
     """
 }
@@ -699,10 +711,27 @@ REQUESTS_REVIEW = {
 HOLDS_DEGREE = {
     "type": "HOLDS_DEGREE",
     "description": "Relationship between a Candidate and a Degree",
+    "properties": {
+        "start_year": "Starting year of degree",
+        "end_year": "Ending year of degree",
+        "academic_performance": "Academic performance (Good, Excellent)",
+        "education_level": "Level of education",
+        "school_id": "ID of the school where degree was earned",
+        "school_name": "Name of the school where degree was earned",
+        "additional_info": "Additional information about the degree"
+    },
     "create_query": """
     MATCH (c:Candidate {candidate_id: $candidate_id})
     MATCH (d:Degree {degree_id: $degree_id})
-    MERGE (c)-[r:HOLDS_DEGREE]->(d)
+    MERGE (c)-[r:HOLDS_DEGREE {
+        start_year: $start_year,
+        end_year: $end_year,
+        academic_performance: $academic_performance,
+        education_level: $education_level,
+        school_id: $school_id,
+        school_name: $school_name,
+        additional_info: $additional_info
+    }]->(d)
     RETURN r
     """
 }
@@ -766,13 +795,17 @@ OFFERS_MAJOR = {
     "type": "OFFERS_MAJOR",
     "description": "Relationship between a School and a Major",
     "properties": {
-        "start_year": "Year when the school started offering the major"
+        "start_year": "Year when the school started offering the major",
+        "is_active": "Whether the major is still offered by the school",
+        "additional_info": "Additional information about the major offering"
     },
     "create_query": """
     MATCH (s:School {school_id: $school_id})
     MATCH (m:Major {major_id: $major_id})
     MERGE (s)-[r:OFFERS_MAJOR {
-        start_year: $start_year
+        start_year: $start_year,
+        is_active: $is_active,
+        additional_info: $additional_info
     }]->(m)
     RETURN r
     """
@@ -800,17 +833,6 @@ IN_EXAM = {
     """
 }
 
-FOR_ATTEMPT = {
-    "type": "FOR_ATTEMPT",
-    "description": "Relationship between a Score and an ExamAttempt",
-    "create_query": """
-    MATCH (score:Score {score_id: $score_id})
-    MATCH (attempt:ExamAttempt {attempt_id: $attempt_id})
-    MERGE (score)-[r:FOR_ATTEMPT]->(attempt)
-    RETURN r
-    """
-}
-
 TEACHES_SUBJECT = {
     "type": "TEACHES_SUBJECT",
     "description": "Relationship between a Major and a Subject",
@@ -834,14 +856,26 @@ INCLUDES_SUBJECT = {
     "description": "Relationship between an Exam and a Subject",
     "properties": {
         "exam_date": "Date of the subject exam",
-        "duration_minutes": "Duration of the exam in minutes"
+        "duration_minutes": "Duration of the exam in minutes",
+        "weight": "Weight of the subject in the exam (default 1.0)",
+        "passing_score": "Minimum score to pass the subject",
+        "max_score": "Maximum possible score (default 100.0)",
+        "is_required": "Whether this subject is mandatory in the exam",
+        "additional_info": "Additional information about the subject in the exam",
+        "subject_metadata": "Metadata for the subject in the exam"
     },
     "create_query": """
     MATCH (e:Exam {exam_id: $exam_id})
     MATCH (s:Subject {subject_id: $subject_id})
     MERGE (e)-[r:INCLUDES_SUBJECT {
         exam_date: $exam_date,
-        duration_minutes: $duration_minutes
+        duration_minutes: $duration_minutes,
+        weight: $weight,
+        passing_score: $passing_score,
+        max_score: $max_score,
+        is_required: $is_required,
+        additional_info: $additional_info,
+        subject_metadata: $subject_metadata
     }]->(s)
     RETURN r
     """
@@ -861,10 +895,19 @@ FOLLOWS_SCHEDULE = {
 HELD_AT = {
     "type": "HELD_AT",
     "description": "Relationship between an Exam and an ExamLocation",
+    "properties": {
+        "is_primary": "Whether this is the primary location for the exam",
+        "is_active": "Whether this location mapping is active",
+        "mapping_metadata": "Additional metadata for the location mapping"
+    },
     "create_query": """
     MATCH (e:Exam {exam_id: $exam_id})
     MATCH (l:ExamLocation {location_id: $location_id})
-    MERGE (e)-[r:HELD_AT]->(l)
+    MERGE (e)-[r:HELD_AT {
+        is_primary: $is_primary,
+        is_active: $is_active,
+        mapping_metadata: $mapping_metadata
+    }]->(l)
     RETURN r
     """
 }
@@ -880,6 +923,28 @@ LOCATED_IN = {
     """
 }
 
+REGISTERS_FOR_SUBJECT = {
+    "type": "REGISTERS_FOR_SUBJECT",
+    "description": "Relationship between a Candidate and an ExamSubject",
+    "properties": {
+        "registration_date": "Date of registration",
+        "status": "Registration status (REGISTERED, CONFIRMED, WITHDRAWN, ABSENT, COMPLETED)",
+        "is_required": "Whether this subject is mandatory for the candidate",
+        "notes": "Additional notes about the registration"
+    },
+    "create_query": """
+    MATCH (c:Candidate {candidate_id: $candidate_id})
+    MATCH (es:ExamSubject {exam_subject_id: $exam_subject_id})
+    MERGE (c)-[r:REGISTERS_FOR_SUBJECT {
+        registration_date: $registration_date,
+        status: $status,
+        is_required: $is_required,
+        notes: $notes
+    }]->(es)
+    RETURN r
+    """
+}
+
 RELATED_TO = {
     "type": "RELATED_TO",
     "description": "Relationship between a Degree and a Major",
@@ -891,53 +956,302 @@ RELATED_TO = {
     """
 }
 
-FOR_EXAM = {
-    "type": "FOR_EXAM",
-    "description": "Relationship between an ExamAttempt and an Exam",
+RELATED_TO_EXAM = {
+    "type": "RELATED_TO_EXAM",
+    "description": "Relationship between a Certificate/Recognition/Award/Achievement and an Exam",
+    "properties": {
+        "issue_date": "Date when the relationship was established"
+    },
     "create_query": """
-    MATCH (a:ExamAttempt {attempt_id: $attempt_id})
+    MATCH (a) WHERE a:Certificate OR a:Recognition OR a:Award OR a:Achievement
     MATCH (e:Exam {exam_id: $exam_id})
-    MERGE (a)-[r:FOR_EXAM]->(e)
+    MERGE (a)-[r:RELATED_TO_EXAM {
+        issue_date: $issue_date
+    }]->(e)
     RETURN r
     """
 }
 
-ATTEMPT_FOLLOWS_SCHEDULE = {
-    "type": "FOLLOWS_SCHEDULE",
-    "description": "Relationship between an ExamAttempt and an ExamSchedule",
+CERTIFICATE_FOR_EXAM = {
+    "type": "CERTIFICATE_FOR_EXAM",
+    "description": "Relationship between a Certificate and an Exam",
+    "properties": {
+        "issue_date": "Date when the certificate was issued",
+        "certificate_type": "Type of certificate issued for the exam"
+    },
     "create_query": """
-    MATCH (a:ExamAttempt {attempt_id: $attempt_id})
+    MATCH (c:Certificate {certificate_id: $certificate_id})
+    MATCH (e:Exam {exam_id: $exam_id})
+    MERGE (c)-[r:CERTIFICATE_FOR_EXAM {
+        issue_date: $issue_date,
+        certificate_type: $certificate_type
+    }]->(e)
+    RETURN r
+    """
+}
+
+RECOGNITION_FOR_EXAM = {
+    "type": "RECOGNITION_FOR_EXAM",
+    "description": "Relationship between a Recognition and an Exam",
+    "properties": {
+        "issue_date": "Date when the recognition was issued",
+        "recognition_type": "Type of recognition issued for the exam"
+    },
+    "create_query": """
+    MATCH (r:Recognition {recognition_id: $recognition_id})
+    MATCH (e:Exam {exam_id: $exam_id})
+    MERGE (r)-[rel:RECOGNITION_FOR_EXAM {
+        issue_date: $issue_date,
+        recognition_type: $recognition_type
+    }]->(e)
+    RETURN rel
+    """
+}
+
+AWARD_FOR_EXAM = {
+    "type": "AWARD_FOR_EXAM",
+    "description": "Relationship between an Award and an Exam",
+    "properties": {
+        "issue_date": "Date when the award was issued",
+        "award_type": "Type of award issued for the exam"
+    },
+    "create_query": """
+    MATCH (a:Award {award_id: $award_id})
+    MATCH (e:Exam {exam_id: $exam_id})
+    MERGE (a)-[r:AWARD_FOR_EXAM {
+        issue_date: $issue_date,
+        award_type: $award_type
+    }]->(e)
+    RETURN r
+    """
+}
+
+ACHIEVEMENT_FOR_EXAM = {
+    "type": "ACHIEVEMENT_FOR_EXAM",
+    "description": "Relationship between an Achievement and an Exam",
+    "properties": {
+        "issue_date": "Date when the achievement was recorded",
+        "achievement_type": "Type of achievement for the exam"
+    },
+    "create_query": """
+    MATCH (a:Achievement {achievement_id: $achievement_id})
+    MATCH (e:Exam {exam_id: $exam_id})
+    MERGE (a)-[r:ACHIEVEMENT_FOR_EXAM {
+        issue_date: $issue_date,
+        achievement_type: $achievement_type
+    }]->(e)
+    RETURN r
+    """
+}
+
+ISSUED_BY = {
+    "type": "ISSUED_BY",
+    "description": "Relationship between a Degree and the School that issued it",
+    "properties": {
+        "issue_date": "Date when the degree was issued",
+        "education_level": "Level of education for this degree (Bachelor's, Master's, Ph.D, etc.)",
+        "program_name": "Name of the educational program",
+        "is_verified": "Whether the degree has been verified by the system"
+    },
+    "create_query": """
+    MATCH (d:Degree {degree_id: $degree_id})
+    MATCH (s:School {school_id: $school_id})
+    MERGE (d)-[r:ISSUED_BY {
+        issue_date: $issue_date,
+        education_level: $education_level,
+        program_name: $program_name,
+        is_verified: $is_verified
+    }]->(s)
+    RETURN r
+    """
+}
+
+STUDIES_MAJOR = {
+    "type": "STUDIES_MAJOR",
+    "description": "Relationship between a Candidate and a Major",
+    "properties": {
+        "start_year": "Starting year of study",
+        "end_year": "Ending year of study",
+        "education_level": "Level of education",
+        "academic_performance": "Academic performance (Good, Excellent, etc.)",
+        "school_id": "ID of the school where the major was studied",
+        "school_name": "Name of the school where the major was studied",
+        "additional_info": "Additional information about the study"
+    },
+    "create_query": """
+    MATCH (c:Candidate {candidate_id: $candidate_id})
+    MATCH (m:Major {major_id: $major_id})
+    MERGE (c)-[r:STUDIES_MAJOR {
+        start_year: $start_year,
+        end_year: $end_year,
+        education_level: $education_level,
+        academic_performance: $academic_performance,
+        school_id: $school_id,
+        school_name: $school_name,
+        additional_info: $additional_info
+    }]->(m)
+    RETURN r
+    """
+}
+
+HAS_EXAM_SCHEDULE = {
+    "type": "HAS_EXAM_SCHEDULE",
+    "description": "Relationship between a Candidate and an ExamSchedule, representing a candidate's exam schedule",
+    "properties": {
+        "exam_id": "ID of the exam",
+        "exam_name": "Name of the exam",
+        "subject_id": "ID of the subject being tested",
+        "subject_name": "Name of the subject being tested",
+        "registration_status": "Status of the registration for this exam schedule",
+        "registration_date": "Date of registration for this exam schedule",
+        "is_required": "Whether this exam schedule is mandatory for the candidate",
+        "room_id": "ID of the assigned exam room",
+        "room_name": "Name of the assigned exam room",
+        "seat_number": "Assigned seat number in the room",
+        "assignment_date": "Date when the room assignment was made"
+    },
+    "create_query": """
+    MATCH (c:Candidate {candidate_id: $candidate_id})
     MATCH (s:ExamSchedule {schedule_id: $schedule_id})
-    MERGE (a)-[r:FOLLOWS_SCHEDULE]->(s)
+    MERGE (c)-[r:HAS_EXAM_SCHEDULE {
+        exam_id: $exam_id,
+        exam_name: $exam_name,
+        subject_id: $subject_id,
+        subject_name: $subject_name,
+        registration_status: $registration_status,
+        registration_date: $registration_date,
+        is_required: $is_required,
+        room_id: $room_id,
+        room_name: $room_name,
+        seat_number: $seat_number,
+        assignment_date: $assignment_date
+    }]->(s)
     RETURN r
     """
 }
 
-HAS_HISTORY = {
-    "type": "HAS_HISTORY",
-    "description": "Relationship between a Score and a ScoreHistory",
+# Relationship between Exam and ManagementUnit
+ORGANIZED_BY = {
+    "type": "ORGANIZED_BY",
+    "description": "Relationship between an Exam and a ManagementUnit, representing which unit organizes the exam",
+    "properties": {
+        "is_primary": "Whether this is the primary organizing unit for the exam",
+        "organization_date": "Date when the unit was assigned to organize the exam",
+        "role": "Role of the management unit in organizing the exam (Primary, Supporting, Administrative, etc.)",
+        "status": "Status of the organization (Planning, In Progress, Completed, etc.)"
+    },
     "create_query": """
-    MATCH (s:Score {score_id: $score_id})
-    MATCH (h:ScoreHistory {history_id: $history_id})
-    MERGE (s)-[r:HAS_HISTORY]->(h)
+    MATCH (e:Exam {exam_id: $exam_id})
+    MATCH (m:ManagementUnit {unit_id: $unit_id})
+    MERGE (e)-[r:ORGANIZED_BY {
+        is_primary: $is_primary,
+        organization_date: $organization_date,
+        role: $role,
+        status: $status
+    }]->(m)
     RETURN r
     """
 }
 
-HAS_REVIEW = {
-    "type": "HAS_REVIEW",
-    "description": "Relationship between a Score and a ScoreReview",
+# Relationship between ExamSchedule and ExamRoom
+ASSIGNED_TO = {
+    "type": "ASSIGNED_TO",
+    "description": "Relationship between an ExamSchedule and an ExamRoom, representing the room where the schedule takes place",
+    "properties": {
+        "assigned_date": "Date when the room was assigned",
+        "is_confirmed": "Whether the room assignment is confirmed",
+        "status": "Status of the assignment (Planned, Confirmed, Cancelled)",
+        "capacity": "Assigned capacity for this schedule (might differ from room capacity)",
+        "assignment_notes": "Additional notes about the room assignment"
+    },
     "create_query": """
-    MATCH (s:Score {score_id: $score_id})
+    MATCH (s:ExamSchedule {schedule_id: $schedule_id})
+    MATCH (r:ExamRoom {room_id: $room_id})
+    MERGE (s)-[rel:ASSIGNED_TO {
+        assigned_date: $assigned_date,
+        is_confirmed: $is_confirmed,
+        status: $status,
+        capacity: $capacity,
+        assignment_notes: $assignment_notes
+    }]->(r)
+    RETURN rel
+    """
+}
+
+# Relationship between ExamSchedule and ExamSubject
+SCHEDULES_SUBJECT = {
+    "type": "SCHEDULES_SUBJECT",
+    "description": "Relationship between an ExamSchedule and an ExamSubject, representing a subject scheduled for examination",
+    "properties": {
+        "duration_minutes": "Duration of the exam for this subject",
+        "max_score": "Maximum possible score",
+        "passing_score": "Minimum score required to pass",
+        "weight": "Weight of this subject in the overall exam",
+        "is_required": "Whether this subject is mandatory"
+    },
+    "create_query": """
+    MATCH (s:ExamSchedule {schedule_id: $schedule_id})
+    MATCH (es:ExamSubject {exam_subject_id: $exam_subject_id})
+    MERGE (s)-[rel:SCHEDULES_SUBJECT {
+        duration_minutes: $duration_minutes,
+        max_score: $max_score,
+        passing_score: $passing_score,
+        weight: $weight,
+        is_required: $is_required
+    }]->(es)
+    RETURN rel
+    """
+}
+
+# Relationship between ExamSchedule and ExamLocation
+SCHEDULE_AT = {
+    "type": "SCHEDULE_AT",
+    "description": "Relationship between an ExamSchedule and an ExamLocation, representing the location where the schedule takes place",
+    "properties": {
+        "is_primary": "Whether this is the primary location for this schedule",
+        "is_active": "Whether this location assignment is active",
+        "assignment_date": "Date when the location was assigned",
+        "notes": "Additional notes about the location assignment"
+    },
+    "create_query": """
+    MATCH (s:ExamSchedule {schedule_id: $schedule_id})
+    MATCH (l:ExamLocation {location_id: $location_id})
+    MERGE (s)-[rel:SCHEDULE_AT {
+        is_primary: $is_primary,
+        is_active: $is_active,
+        assignment_date: $assignment_date,
+        notes: $notes
+    }]->(l)
+    RETURN rel
+    """
+}
+
+# Relationship between ScoreReview and Score
+REVIEWS = {
+    "type": "REVIEWS",
+    "description": "Relationship between a ScoreReview and a Score, representing a review of a score",
+    "properties": {
+        "review_date": "Date of the review request",
+        "review_status": "Status of the review",
+        "reviewer": "Person who reviewed the score"
+    },
+    "create_query": """
     MATCH (r:ScoreReview {review_id: $review_id})
-    MERGE (s)-[r:HAS_REVIEW]->(r)
-    RETURN r
+    MATCH (s:Score {score_id: $score_id})
+    MERGE (r)-[rel:REVIEWS {
+        review_date: $review_date,
+        review_status: $review_status,
+        reviewer: $reviewer
+    }]->(s)
+    RETURN rel
     """
 }
 
 # Dictionary of all classes
 CLASSES = {
     "Thing": THING,
+    "OntologyInstance": ONTOLOGY_INSTANCE,
+    "OntologyClass": ONTOLOGY_CLASS,
     "Candidate": CANDIDATE,
     "School": SCHOOL,
     "Major": MAJOR,
@@ -945,10 +1259,8 @@ CLASSES = {
     "Exam": EXAM,
     "ExamLocation": EXAM_LOCATION,
     "ExamSchedule": EXAM_SCHEDULE,
-    "ExamAttempt": EXAM_ATTEMPT,
     "Score": SCORE,
     "ScoreReview": SCORE_REVIEW,
-    "ScoreHistory": SCORE_HISTORY,
     "Certificate": CERTIFICATE,
     "Recognition": RECOGNITION,
     "Award": AWARD,
@@ -962,9 +1274,9 @@ CLASSES = {
 # Dictionary of all relationships
 RELATIONSHIPS = {
     "IS_A": IS_A,
+    "INSTANCE_OF": INSTANCE_OF,
     "STUDIES_AT": STUDIES_AT,
     "ATTENDS_EXAM": ATTENDS_EXAM,
-    "HAS_ATTEMPT": HAS_ATTEMPT,
     "RECEIVES_SCORE": RECEIVES_SCORE,
     "REQUESTS_REVIEW": REQUESTS_REVIEW,
     "HOLDS_DEGREE": HOLDS_DEGREE,
@@ -976,15 +1288,24 @@ RELATIONSHIPS = {
     "OFFERS_MAJOR": OFFERS_MAJOR,
     "FOR_SUBJECT": FOR_SUBJECT,
     "IN_EXAM": IN_EXAM,
-    "FOR_ATTEMPT": FOR_ATTEMPT,
     "TEACHES_SUBJECT": TEACHES_SUBJECT,
     "INCLUDES_SUBJECT": INCLUDES_SUBJECT,
     "FOLLOWS_SCHEDULE": FOLLOWS_SCHEDULE,
     "HELD_AT": HELD_AT,
     "LOCATED_IN": LOCATED_IN,
     "RELATED_TO": RELATED_TO,
-    "FOR_EXAM": FOR_EXAM,
-    "ATTEMPT_FOLLOWS_SCHEDULE": ATTEMPT_FOLLOWS_SCHEDULE,
-    "HAS_HISTORY": HAS_HISTORY,
-    "HAS_REVIEW": HAS_REVIEW
+    "REGISTERS_FOR_SUBJECT": REGISTERS_FOR_SUBJECT,
+    "RELATED_TO_EXAM": RELATED_TO_EXAM,
+    "CERTIFICATE_FOR_EXAM": CERTIFICATE_FOR_EXAM,
+    "RECOGNITION_FOR_EXAM": RECOGNITION_FOR_EXAM,
+    "AWARD_FOR_EXAM": AWARD_FOR_EXAM,
+    "ACHIEVEMENT_FOR_EXAM": ACHIEVEMENT_FOR_EXAM,
+    "STUDIES_MAJOR": STUDIES_MAJOR,
+    "HAS_EXAM_SCHEDULE": HAS_EXAM_SCHEDULE,
+    "ORGANIZED_BY": ORGANIZED_BY,
+    "ISSUED_BY": ISSUED_BY,
+    "ASSIGNED_TO": ASSIGNED_TO,
+    "SCHEDULES_SUBJECT": SCHEDULES_SUBJECT,
+    "SCHEDULE_AT": SCHEDULE_AT,
+    "REVIEWS": REVIEWS
 } 

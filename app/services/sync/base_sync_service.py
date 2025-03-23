@@ -1,59 +1,127 @@
 """
-Base synchronization service module.
+Base Sync Service module.
 
-This module provides the base class for synchronizing data between
-PostgreSQL and Neo4j databases.
+This module provides the BaseSyncService abstract class which serves as the foundation for all
+synchronization services that transfer data between PostgreSQL and Neo4j.
 """
 
 import logging
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Optional, Union, TypeVar, Generic
+
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.infrastructure.ontology.neo4j_connection import neo4j_connection
+from neo4j import AsyncDriver
+
+# Type variables for generic repository types
+T = TypeVar('T')  # SQL model type
+N = TypeVar('N')  # Neo4j node type
 
 logger = logging.getLogger(__name__)
 
-class BaseSyncService:
+class BaseSyncService(ABC):
     """
-    Base service for synchronizing data between PostgreSQL and Neo4j.
+    Abstract base class for synchronization services.
     
-    This service is responsible for providing common functionality
-    for all sync services.
+    This class provides the common structure and utility methods for services
+    that synchronize data between PostgreSQL and Neo4j, ensuring proper
+    handling of ontology relationships.
     """
     
-    def __init__(self, neo4j_connection, db_session: AsyncSession):
-        """Initialize with Neo4j connection and SQLAlchemy session."""
-        self.neo4j = neo4j_connection
-        self.db = db_session
+    def __init__(
+        self,
+        db_session: AsyncSession,
+        neo4j_driver: AsyncDriver,
+        sql_repository: Any = None,
+        graph_repository: Any = None
+    ):
+        """
+        Initialize the base sync service.
         
-    async def _log_sync_start(self, entity_type, entity_id=None):
-        """Log the start of a synchronization operation."""
-        if entity_id:
-            logger.info(f"Syncing {entity_type} with ID {entity_id} to Neo4j")
-        else:
-            logger.info(f"Starting bulk sync of {entity_type}s to Neo4j")
+        Args:
+            db_session: SQLAlchemy async session
+            neo4j_driver: Neo4j async driver
+            sql_repository: Optional SQL repository instance
+            graph_repository: Optional Neo4j graph repository instance
+        """
+        self.db_session = db_session
+        self.neo4j_driver = neo4j_driver
+        self.sql_repository = sql_repository
+        self.graph_repository = graph_repository
     
-    async def _log_sync_success(self, entity_type, entity_id=None, count=None):
-        """Log the successful completion of a synchronization operation."""
-        if entity_id:
-            logger.info(f"Successfully synchronized {entity_type} with ID {entity_id} to Neo4j")
-        elif count is not None:
-            logger.info(f"Successfully synchronized {count} {entity_type}s to Neo4j")
-        else:
-            logger.info(f"Successfully completed bulk sync of {entity_type}s to Neo4j")
+    @abstractmethod
+    async def sync_by_id(self, entity_id: str) -> bool:
+        """
+        Synchronize a single entity by ID.
+        
+        Args:
+            entity_id: ID of the entity to sync
+            
+        Returns:
+            bool: True if sync successful, False otherwise
+        """
+        pass
     
-    async def _log_sync_error(self, entity_type, error, entity_id=None):
-        """Log an error that occurred during synchronization."""
-        if entity_id:
-            logger.error(f"Error syncing {entity_type} with ID {entity_id} to Neo4j: {error}")
-        else:
-            logger.error(f"Error during bulk sync of {entity_type}s to Neo4j: {error}")
+    @abstractmethod
+    async def sync_all(self, limit: Optional[int] = None, offset: int = 0) -> Dict[str, Any]:
+        """
+        Synchronize all entities of a specific type.
+        
+        Args:
+            limit: Optional maximum number of entities to sync
+            offset: Number of entities to skip from the beginning
+            
+        Returns:
+            Dictionary with sync results
+        """
+        pass
     
-    async def _execute_neo4j_query(self, query, params=None):
-        """Execute a Neo4j query and handle potential errors."""
+    @abstractmethod
+    def _convert_to_node(self, entity: Any) -> Any:
+        """
+        Convert SQL model to Neo4j node model.
+        
+        Args:
+            entity: SQL model instance
+            
+        Returns:
+            Neo4j node instance
+        """
+        pass
+    
+    def _log_sync_result(self, entity_type: str, success_count: int, failure_count: int, total_count: int) -> None:
+        """
+        Log the results of a synchronization operation.
+        
+        Args:
+            entity_type: Type of entity being synced (e.g., "Score", "Subject")
+            success_count: Number of successfully synced entities
+            failure_count: Number of failed synchronizations
+            total_count: Total number of processed entities
+        """
+        logger.info(
+            f"{entity_type} sync completed: {success_count} successful, "
+            f"{failure_count} failed, {total_count} total"
+        )
+    
+    async def execute_neo4j_query(self, query: str, params: Dict[str, Any] = None) -> List[Any]:
+        """
+        Execute a Cypher query in Neo4j.
+        
+        Args:
+            query: The Cypher query to execute
+            params: Parameters for the query
+            
+        Returns:
+            Query results
+            
+        Raises:
+            Exception: If the query execution fails
+        """
         try:
-            logger.debug(f"Executing Neo4j query: {query}")
-            if params:
-                logger.debug(f"Query parameters: {params}")
-            return await self.neo4j.execute_query(query, params or {})
+            async with self.neo4j_driver.session() as session:
+                result = await session.run(query, params or {})
+                records = await result.values()
+                return records
         except Exception as e:
-            logger.error(f"Error executing Neo4j query: {e}")
+            logger.error(f"Error executing Neo4j query: {str(e)}")
             raise 

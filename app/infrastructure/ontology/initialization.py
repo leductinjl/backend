@@ -18,104 +18,31 @@ async def create_constraints_and_indexes():
     """
     try:
         # Create constraints for all node classes
-        constraints_queries = [
-            # Thing constraint
-            """
-            CREATE CONSTRAINT thing_id IF NOT EXISTS
-            FOR (t:Thing) REQUIRE t.id IS UNIQUE
-            """,
+        constraints_queries = []
+        
+        # Thing constraint (root class)
+        constraints_queries.append("""
+        CREATE CONSTRAINT thing_id IF NOT EXISTS
+        FOR (t:Thing) REQUIRE t.id IS UNIQUE
+        """)
+        
+        # Generate class-specific constraints from CLASSES dictionary
+        for class_name, class_def in CLASSES.items():
+            if class_name == "Thing":
+                continue  # Already handled above
+                
+            # Extract id property name (usually class_name_id)
+            id_property = None
+            for prop_name in class_def.get("properties", {}).keys():
+                if prop_name.endswith("_id") and (prop_name == f"{class_name.lower()}_id" or prop_name == "id"):
+                    id_property = prop_name
+                    break
             
-            # Class-specific constraints
-            """
-            CREATE CONSTRAINT candidate_id IF NOT EXISTS
-            FOR (c:Candidate) REQUIRE c.candidate_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT school_id IF NOT EXISTS
-            FOR (s:School) REQUIRE s.school_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT major_id IF NOT EXISTS
-            FOR (m:Major) REQUIRE m.major_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT subject_id IF NOT EXISTS
-            FOR (s:Subject) REQUIRE s.subject_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT exam_id IF NOT EXISTS
-            FOR (e:Exam) REQUIRE e.exam_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT location_id IF NOT EXISTS
-            FOR (l:ExamLocation) REQUIRE l.location_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT schedule_id IF NOT EXISTS
-            FOR (s:ExamSchedule) REQUIRE s.schedule_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT attempt_id IF NOT EXISTS
-            FOR (a:ExamAttempt) REQUIRE a.attempt_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT score_id IF NOT EXISTS
-            FOR (s:Score) REQUIRE s.score_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT review_id IF NOT EXISTS
-            FOR (r:ScoreReview) REQUIRE r.review_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT history_id IF NOT EXISTS
-            FOR (h:ScoreHistory) REQUIRE h.history_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT certificate_id IF NOT EXISTS
-            FOR (c:Certificate) REQUIRE c.certificate_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT recognition_id IF NOT EXISTS
-            FOR (r:Recognition) REQUIRE r.recognition_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT award_id IF NOT EXISTS
-            FOR (a:Award) REQUIRE a.award_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT achievement_id IF NOT EXISTS
-            FOR (a:Achievement) REQUIRE a.achievement_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT degree_id IF NOT EXISTS
-            FOR (d:Degree) REQUIRE d.degree_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT credential_id IF NOT EXISTS
-            FOR (c:Credential) REQUIRE c.credential_id IS UNIQUE
-            """,
-            
-            """
-            CREATE CONSTRAINT unit_id IF NOT EXISTS
-            FOR (u:ManagementUnit) REQUIRE u.unit_id IS UNIQUE
-            """
-        ]
+            if id_property:
+                constraints_queries.append(f"""
+                CREATE CONSTRAINT {class_name.lower()}_id IF NOT EXISTS
+                FOR (c:{class_name}) REQUIRE c.{id_property} IS UNIQUE
+                """)
         
         # Create indexes for frequently searched properties
         index_queries = [
@@ -190,108 +117,20 @@ async def create_base_nodes():
         await neo4j_connection.execute_query(thing_query, thing_params)
         logging.info("Created Thing node")
         
-        # Define class nodes to create
-        class_nodes = [
-            {
-                "id": "candidate-class",
-                "name": "Candidate",
-                "description": "Class representing candidate/student information"
-            },
-            {
-                "id": "school-class",
-                "name": "School",
-                "description": "Educational institution"
-            },
-            {
-                "id": "major-class",
-                "name": "Major",
-                "description": "Field of study"
-            },
-            {
-                "id": "subject-class",
-                "name": "Subject",
-                "description": "Academic subject"
-            },
-            {
-                "id": "exam-class",
-                "name": "Exam",
-                "description": "Examination"
-            },
-            {
-                "id": "examlocation-class",
-                "name": "ExamLocation",
-                "description": "Location where exams are held"
-            },
-            {
-                "id": "examroom-class",
-                "name": "ExamRoom",
-                "description": "Room within an exam location"
-            },
-            {
-                "id": "examschedule-class",
-                "name": "ExamSchedule",
-                "description": "Schedule for an exam and subject"
-            },
-            {
-                "id": "score-class",
-                "name": "Score",
-                "description": "Exam score for a subject"
-            },
-            {
-                "id": "certificate-class",
-                "name": "Certificate",
-                "description": "Certificate earned by candidate"
-            },
-            {
-                "id": "award-class",
-                "name": "Award",
-                "description": "Award received in competition"
-            },
-            {
-                "id": "degree-class",
-                "name": "Degree",
-                "description": "Higher education degree"
-            },
-            {
-                "id": "achievement-class",
-                "name": "Achievement",
-                "description": "Achievement or accomplishment by a candidate"
-            },
-            {
-                "id": "credential-class",
-                "name": "Credential",
-                "description": "Authentication credential for a candidate"
-            },
-            {
-                "id": "examattempt-class",
-                "name": "ExamAttempt",
-                "description": "An attempt by a candidate to take an exam"
-            },
-            {
-                "id": "managementunit-class",
-                "name": "ManagementUnit",
-                "description": "Organization unit managing educational entities"
-            },
-            {
-                "id": "recognition-class",
-                "name": "Recognition",
-                "description": "Formal acknowledgment of accomplishment"
-            },
-            {
-                "id": "scorehistory-class",
-                "name": "ScoreHistory",
-                "description": "History of changes to a score"
-            },
-            {
-                "id": "scorereview-class",
-                "name": "ScoreReview",
-                "description": "Review process for a contested score"
-            }
-        ]
+        # Define class nodes based on CLASSES dictionary
+        class_nodes = []
+        for class_name, class_def in CLASSES.items():
+            if class_name == "Thing":
+                continue  # Already handled above
+                
+            class_nodes.append({
+                "id": f"{class_name.lower()}-class",
+                "name": class_name,
+                "description": class_def.get("description", f"Class representing {class_name}")
+            })
         
-        # Generic class node creation query - now using specific label directly in the query
+        # Generic class node creation query - using specific label directly in the query
         # And consistently applying both the class-specific label and a common 'OntologyClass' label
-        # Using positional parameter $1, $2, etc. to avoid confusion with $ label syntax
         for node in class_nodes:
             # Create class node
             class_query = f"""

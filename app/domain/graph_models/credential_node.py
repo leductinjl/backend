@@ -4,6 +4,12 @@ Credential Node model.
 This module defines the CredentialNode class for representing Candidate Credential entities in the Neo4j graph.
 """
 
+from app.infrastructure.ontology.ontology import RELATIONSHIPS, CLASSES
+
+# Import specific relationships
+PROVIDES_CREDENTIAL_REL = RELATIONSHIPS["PROVIDES_CREDENTIAL"]["type"]
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+
 class CredentialNode:
     """
     Model for Credential node in Neo4j Knowledge Graph.
@@ -93,13 +99,26 @@ class CredentialNode:
         Returns:
             Query tạo quan hệ với các node khác
         """
-        return """
+        return f"""
         // Tạo quan hệ với Candidate nếu có
-        OPTIONAL MATCH (ca:Candidate {candidate_id: $candidate_id})
+        OPTIONAL MATCH (ca:Candidate {{candidate_id: $candidate_id}})
         WITH ca
         WHERE ca IS NOT NULL
-        MATCH (c:Credential {credential_id: $credential_id})
-        MERGE (ca)-[:HAS_CREDENTIAL]->(c)
+        MATCH (c:Credential {{credential_id: $credential_id}})
+        MERGE (ca)-[:{PROVIDES_CREDENTIAL_REL}]->(c)
+        """
+    
+    def create_instance_of_relationship_query(self):
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node Credential và class definition.
+        
+        Returns:
+            Query tạo quan hệ INSTANCE_OF
+        """
+        return f"""
+        MATCH (c:Credential:OntologyInstance {{credential_id: $credential_id}})
+        MATCH (class:OntologyClass {{id: 'credential-class'}})
+        MERGE (c)-[:{INSTANCE_OF_REL}]->(class)
         """
     
     def to_dict(self):

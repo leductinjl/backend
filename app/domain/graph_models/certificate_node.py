@@ -4,6 +4,13 @@ Certificate Node model.
 This module defines the CertificateNode class for representing Certificate entities in the Neo4j graph.
 """
 
+from app.infrastructure.ontology.ontology import RELATIONSHIPS, CLASSES
+
+# Import specific relationships
+EARNS_CERTIFICATE_REL = RELATIONSHIPS["EARNS_CERTIFICATE"]["type"]
+CERTIFICATE_FOR_EXAM_REL = RELATIONSHIPS["CERTIFICATE_FOR_EXAM"]["type"]
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+
 class CertificateNode:
     """
     Model for Certificate node in Neo4j Knowledge Graph.
@@ -83,20 +90,33 @@ class CertificateNode:
         Returns:
             Query tạo quan hệ với các node khác
         """
-        return """
+        return f"""
         // Tạo quan hệ với Candidate nếu có
-        OPTIONAL MATCH (c:Candidate {candidate_id: $candidate_id})
+        OPTIONAL MATCH (c:Candidate {{candidate_id: $candidate_id}})
         WITH c
         WHERE c IS NOT NULL
-        MATCH (cert:Certificate {certificate_id: $certificate_id})
-        MERGE (c)-[:EARNS_CERTIFICATE]->(cert)
+        MATCH (cert:Certificate {{certificate_id: $certificate_id}})
+        MERGE (c)-[:{EARNS_CERTIFICATE_REL}]->(cert)
         
         // Tạo quan hệ với Exam nếu có
         WITH cert
-        OPTIONAL MATCH (e:Exam {exam_id: $exam_id})
+        OPTIONAL MATCH (e:Exam {{exam_id: $exam_id}})
         WITH cert, e
         WHERE e IS NOT NULL
-        MERGE (cert)-[:AWARDED_IN]->(e)
+        MERGE (cert)-[:{CERTIFICATE_FOR_EXAM_REL}]->(e)
+        """
+    
+    @staticmethod
+    def create_instance_of_relationship_query():
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node Certificate
+        và node class Certificate trong ontology.
+        """
+        return f"""
+        MATCH (instance:Certificate:OntologyInstance {{certificate_id: $certificate_id}})
+        MATCH (class:Certificate:OntologyClass {{id: 'certificate-class'}})
+        MERGE (instance)-[r:{INSTANCE_OF_REL}]->(class)
+        RETURN r
         """
     
     def to_dict(self):
@@ -108,6 +128,8 @@ class CertificateNode:
             "certificate_name": self.certificate_name,
             "name": self.name,
             "certificate_number": self.certificate_number,
+            "candidate_id": self.candidate_id,
+            "exam_id": self.exam_id,
             "issue_date": self.issue_date,
             "expiry_date": self.expiry_date,
             "issuing_organization": self.issuing_organization,

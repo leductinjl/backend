@@ -5,6 +5,11 @@ This module defines the ManagementUnitNode class for representing ManagementUnit
 """
 
 from typing import Optional, Dict, Any
+from app.infrastructure.ontology.ontology import RELATIONSHIPS, CLASSES
+
+# Define relationship constants
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+ORGANIZED_BY_REL = RELATIONSHIPS["ORGANIZED_BY"]["type"]
 
 class ManagementUnitNode:
     """
@@ -54,6 +59,7 @@ class ManagementUnitNode:
         return """
         MERGE (m:ManagementUnit:OntologyInstance {unit_id: $unit_id})
         ON CREATE SET
+            m:Thing,
             m.unit_name = $unit_name,
             m.name = $name,
             m.unit_code = $unit_code,
@@ -82,6 +88,19 @@ class ManagementUnitNode:
         RETURN m
         """
     
+    def create_instance_of_relationship_query(self):
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node ManagementUnit và class definition.
+        
+        Returns:
+            Query tạo quan hệ INSTANCE_OF
+        """
+        return f"""
+        MATCH (m:ManagementUnit:OntologyInstance {{unit_id: $unit_id}})
+        MATCH (class:OntologyClass {{id: 'management-unit-class'}})
+        MERGE (m)-[:{INSTANCE_OF_REL}]->(class)
+        """
+    
     def create_relationships_query(self):
         """
         Tạo Cypher query để thiết lập các mối quan hệ của ManagementUnit.
@@ -89,12 +108,12 @@ class ManagementUnitNode:
         Returns:
             Query tạo quan hệ với các node khác
         """
-        return """
+        return f"""
         // Tạo quan hệ với đơn vị cha nếu có
-        OPTIONAL MATCH (p:ManagementUnit {unit_id: $parent_id})
+        OPTIONAL MATCH (p:ManagementUnit {{unit_id: $parent_id}})
         WITH p
         WHERE p IS NOT NULL
-        MATCH (m:ManagementUnit {unit_id: $unit_id})
+        MATCH (m:ManagementUnit {{unit_id: $unit_id}})
         MERGE (m)-[:BELONGS_TO]->(p)
         """
     

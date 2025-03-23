@@ -4,6 +4,13 @@ Recognition Node model.
 This module defines the RecognitionNode class for representing Recognition entities in the Neo4j graph.
 """
 
+from app.infrastructure.ontology.ontology import RELATIONSHIPS
+
+# Import specific relationships
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+RECEIVES_RECOGNITION_REL = RELATIONSHIPS["RECEIVES_RECOGNITION"]["type"]
+RECOGNITION_FOR_EXAM_REL = RELATIONSHIPS["RECOGNITION_FOR_EXAM"]["type"]
+
 class RecognitionNode:
     """
     Model for Recognition node in Neo4j Knowledge Graph.
@@ -50,6 +57,7 @@ class RecognitionNode:
         return """
         MERGE (r:Recognition:OntologyInstance {recognition_id: $recognition_id})
         ON CREATE SET
+            r:Thing,
             r.recognition_name = $recognition_name,
             r.name = $name,
             r.recognition_type = $recognition_type,
@@ -70,6 +78,19 @@ class RecognitionNode:
         RETURN r
         """
     
+    def create_instance_of_relationship_query(self):
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node Recognition và class definition.
+        
+        Returns:
+            Query tạo quan hệ INSTANCE_OF
+        """
+        return f"""
+        MATCH (r:Recognition:OntologyInstance {{recognition_id: $recognition_id}})
+        MATCH (class:OntologyClass {{id: 'recognition-class'}})
+        MERGE (r)-[:{INSTANCE_OF_REL}]->(class)
+        """
+    
     def create_relationships_query(self):
         """
         Tạo Cypher query để thiết lập các mối quan hệ của Recognition.
@@ -77,20 +98,20 @@ class RecognitionNode:
         Returns:
             Query tạo quan hệ với các node khác
         """
-        return """
+        return f"""
         // Tạo quan hệ với Candidate nếu có
-        OPTIONAL MATCH (c:Candidate {candidate_id: $candidate_id})
+        OPTIONAL MATCH (c:Candidate {{candidate_id: $candidate_id}})
         WITH c
         WHERE c IS NOT NULL
-        MATCH (r:Recognition {recognition_id: $recognition_id})
-        MERGE (c)-[:RECEIVES_RECOGNITION]->(r)
+        MATCH (r:Recognition {{recognition_id: $recognition_id}})
+        MERGE (c)-[:{RECEIVES_RECOGNITION_REL}]->(r)
         
         // Tạo quan hệ với Exam nếu có
         WITH r
-        OPTIONAL MATCH (e:Exam {exam_id: $exam_id})
+        OPTIONAL MATCH (e:Exam {{exam_id: $exam_id}})
         WITH r, e
         WHERE e IS NOT NULL
-        MERGE (r)-[:AWARDED_IN]->(e)
+        MERGE (r)-[:{RECOGNITION_FOR_EXAM_REL}]->(e)
         """
     
     def to_dict(self):

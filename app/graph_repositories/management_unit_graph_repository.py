@@ -10,7 +10,14 @@ from typing import Dict, List, Optional, Union
 from neo4j import Driver
 from neo4j.exceptions import Neo4jError
 
-from app.domain.graph_models.management_unit_node import ManagementUnitNode
+from app.domain.graph_models.management_unit_node import (
+    ManagementUnitNode, INSTANCE_OF_REL, ORGANIZED_BY_REL
+)
+from app.infrastructure.ontology.ontology import RELATIONSHIPS
+
+# Define other relationship constants
+MANAGES_REL = "MANAGES"
+OPERATES_REL = "OPERATES"
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +75,14 @@ class ManagementUnitGraphRepository:
                 unit.create_relationships_query(),
                 params
             )
+            
+            # Create INSTANCE_OF relationship if the method exists
+            if hasattr(unit, 'create_instance_of_relationship_query'):
+                await self.neo4j.execute_query(
+                    unit.create_instance_of_relationship_query(),
+                    params
+                )
+                logger.info(f"Created INSTANCE_OF relationship for management unit {unit.unit_id}")
             
             if result and len(result) > 0:
                 logger.info(f"Successfully created/updated management unit {unit.unit_id} in Neo4j")
@@ -167,7 +182,7 @@ class ManagementUnitGraphRepository:
             logger.error(f"Unexpected error in get_by_type: {e}")
             return []
     
-    def get_children(self, parent_id: str) -> List[ManagementUnitNode]:
+    async def get_children(self, parent_id: str) -> List[ManagementUnitNode]:
         """
         Lấy tất cả các đơn vị con của một đơn vị quản lý.
         
@@ -184,11 +199,12 @@ class ManagementUnitGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, parent_id=parent_id).data()
-                )
-                return [ManagementUnitNode.from_record(record) for record in result]
+            result = await self.neo4j.execute_query(query, {"parent_id": parent_id})
+            units = []
+            if result and len(result) > 0:
+                for record in result:
+                    units.append(ManagementUnitNode.from_record({"m": record[0]}))
+            return units
         except Neo4jError as e:
             logger.error(f"Error retrieving children units: {e}")
             return []
@@ -196,7 +212,7 @@ class ManagementUnitGraphRepository:
             logger.error(f"Unexpected error in get_children: {e}")
             return []
     
-    def get_parent(self, unit_id: str) -> Optional[ManagementUnitNode]:
+    async def get_parent(self, unit_id: str) -> Optional[ManagementUnitNode]:
         """
         Lấy đơn vị quản lý cha của một đơn vị.
         
@@ -212,11 +228,10 @@ class ManagementUnitGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, unit_id=unit_id).single()
-                )
-                return ManagementUnitNode.from_record(result) if result else None
+            result = await self.neo4j.execute_query(query, {"unit_id": unit_id})
+            if result and len(result) > 0:
+                return ManagementUnitNode.from_record({"m": result[0][0]})
+            return None
         except Neo4jError as e:
             logger.error(f"Error retrieving parent unit: {e}")
             return None
@@ -224,7 +239,7 @@ class ManagementUnitGraphRepository:
             logger.error(f"Unexpected error in get_parent: {e}")
             return None
     
-    def get_by_region(self, region: str) -> List[ManagementUnitNode]:
+    async def get_by_region(self, region: str) -> List[ManagementUnitNode]:
         """
         Lấy tất cả các đơn vị quản lý trong một khu vực.
         
@@ -242,11 +257,12 @@ class ManagementUnitGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, region=region).data()
-                )
-                return [ManagementUnitNode.from_record(record) for record in result]
+            result = await self.neo4j.execute_query(query, {"region": region})
+            units = []
+            if result and len(result) > 0:
+                for record in result:
+                    units.append(ManagementUnitNode.from_record({"m": record[0]}))
+            return units
         except Neo4jError as e:
             logger.error(f"Error retrieving units by region: {e}")
             return []
@@ -281,7 +297,7 @@ class ManagementUnitGraphRepository:
             logger.error(f"Unexpected error in get_all_units: {e}")
             return []
     
-    def add_manages_exam_relationship(self, unit_id: str, exam_id: str) -> bool:
+    async def add_manages_exam_relationship(self, unit_id: str, exam_id: str) -> bool:
         """
         Thêm mối quan hệ quản lý giữa đơn vị và kỳ thi.
         
@@ -292,19 +308,24 @@ class ManagementUnitGraphRepository:
         Returns:
             True nếu thành công, False nếu lỗi
         """
-        query = """
-        MATCH (m:ManagementUnit {unit_id: $unit_id})
-        MATCH (e:Exam {exam_id: $exam_id})
-        MERGE (m)-[:MANAGES]->(e)
+        query = f"""
+        MATCH (m:ManagementUnit {{unit_id: $unit_id}})
+        MATCH (e:Exam {{exam_id: $exam_id}})
+        MERGE (e)-[r:{ORGANIZED_BY_REL}]->(m)
         RETURN m, e
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_write(
-                    lambda tx: tx.run(query, unit_id=unit_id, exam_id=exam_id).data()
-                )
-                return len(result) > 0
+            result = await self.neo4j.execute_query(
+                query, 
+                {"unit_id": unit_id, "exam_id": exam_id}
+            )
+            if result and len(result) > 0:
+                logger.info(f"Added {ORGANIZED_BY_REL} relationship between Exam {exam_id} and ManagementUnit {unit_id}")
+                return True
+            else:
+                logger.error(f"Failed to add {ORGANIZED_BY_REL} relationship between Exam {exam_id} and ManagementUnit {unit_id}")
+                return False
         except Neo4jError as e:
             logger.error(f"Error adding manages exam relationship: {e}")
             return False
@@ -312,7 +333,7 @@ class ManagementUnitGraphRepository:
             logger.error(f"Unexpected error in add_manages_exam_relationship: {e}")
             return False
     
-    def add_operates_location_relationship(self, unit_id: str, location_id: str) -> bool:
+    async def add_operates_location_relationship(self, unit_id: str, location_id: str) -> bool:
         """
         Thêm mối quan hệ vận hành giữa đơn vị và địa điểm thi.
         
@@ -323,22 +344,69 @@ class ManagementUnitGraphRepository:
         Returns:
             True nếu thành công, False nếu lỗi
         """
-        query = """
-        MATCH (m:ManagementUnit {unit_id: $unit_id})
-        MATCH (l:ExamLocation {location_id: $location_id})
-        MERGE (m)-[:OPERATES]->(l)
+        query = f"""
+        MATCH (m:ManagementUnit {{unit_id: $unit_id}})
+        MATCH (l:ExamLocation {{location_id: $location_id}})
+        MERGE (m)-[r:{OPERATES_REL}]->(l)
         RETURN m, l
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_write(
-                    lambda tx: tx.run(query, unit_id=unit_id, location_id=location_id).data()
-                )
-                return len(result) > 0
+            result = await self.neo4j.execute_query(
+                query, 
+                {"unit_id": unit_id, "location_id": location_id}
+            )
+            if result and len(result) > 0:
+                logger.info(f"Added {OPERATES_REL} relationship between ManagementUnit {unit_id} and ExamLocation {location_id}")
+                return True
+            else:
+                logger.error(f"Failed to add {OPERATES_REL} relationship between ManagementUnit {unit_id} and ExamLocation {location_id}")
+                return False
         except Neo4jError as e:
             logger.error(f"Error adding operates location relationship: {e}")
             return False
         except Exception as e:
             logger.error(f"Unexpected error in add_operates_location_relationship: {e}")
             return False
+            
+    async def get_organized_exams(self, unit_id: str) -> List[Dict]:
+        """
+        Lấy tất cả các kỳ thi được tổ chức bởi đơn vị quản lý.
+        
+        Args:
+            unit_id: ID của đơn vị quản lý
+            
+        Returns:
+            Danh sách các kỳ thi
+        """
+        query = f"""
+        MATCH (e:Exam)-[r:{ORGANIZED_BY_REL}]->(m:ManagementUnit {{unit_id: $unit_id}})
+        RETURN e, r
+        """
+        
+        try:
+            result = await self.neo4j.execute_query(query, {"unit_id": unit_id})
+            exams = []
+            if result and len(result) > 0:
+                for record in result:
+                    exam = record[0]
+                    relationship = record[1]
+                    exams.append({
+                        "exam_id": exam["exam_id"],
+                        "exam_name": exam["exam_name"],
+                        "start_date": exam.get("start_date"),
+                        "end_date": exam.get("end_date"),
+                        "scope": exam.get("scope"),
+                        "relationship": {
+                            "role": relationship.get("role"),
+                            "start_date": relationship.get("start_date"),
+                            "end_date": relationship.get("end_date")
+                        }
+                    })
+            return exams
+        except Neo4jError as e:
+            logger.error(f"Error retrieving organized exams: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error in get_organized_exams: {e}")
+            return []

@@ -1,6 +1,11 @@
 import logging
+from app.infrastructure.ontology.ontology import CLASSES, RELATIONSHIPS
 
 logger = logging.getLogger(__name__)
+
+# Lấy các định nghĩa từ ontology
+CANDIDATE_DEF = CLASSES["Candidate"]
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
 
 class CandidateNode:
     """
@@ -71,6 +76,19 @@ class CandidateNode:
             c.additional_info = $additional_info,
             c.updated_at = datetime()
         RETURN c
+        """
+    
+    @staticmethod
+    def create_instance_of_relationship_query():
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node thí sinh
+        và node class Candidate trong ontology.
+        """
+        return f"""
+        MATCH (instance:Candidate:OntologyInstance {{candidate_id: $candidate_id}})
+        MATCH (class:Candidate:OntologyClass {{id: 'candidate-class'}})
+        MERGE (instance)-[r:{INSTANCE_OF_REL}]->(class)
+        RETURN r
         """
     
     def to_dict(self):

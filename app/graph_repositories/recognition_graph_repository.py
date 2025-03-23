@@ -4,8 +4,15 @@ Recognition Graph Repository module.
 This module provides methods for interacting with Recognition nodes in Neo4j.
 """
 
-from app.domain.graph_models.recognition_node import RecognitionNode
+import logging
+from typing import Dict, List, Optional, Union
+
+from app.domain.graph_models.recognition_node import (
+    RecognitionNode, INSTANCE_OF_REL, RECEIVES_RECOGNITION_REL, RECOGNITION_FOR_EXAM_REL
+)
 from app.infrastructure.ontology.ontology import RELATIONSHIPS
+
+logger = logging.getLogger(__name__)
 
 class RecognitionGraphRepository:
     """
@@ -30,22 +37,47 @@ class RecognitionGraphRepository:
             bool: True if operation successful, False otherwise
         """
         try:
-            # Ensure we have a dictionary
-            params = recognition.to_dict() if hasattr(recognition, 'to_dict') else recognition
+            # Convert to RecognitionNode if it's a dictionary
+            if isinstance(recognition, dict):
+                recognition = RecognitionNode(
+                    recognition_id=recognition.get("recognition_id"),
+                    recognition_name=recognition.get("recognition_name"),
+                    recognition_type=recognition.get("recognition_type"),
+                    recognition_date=recognition.get("recognition_date"),
+                    description=recognition.get("description"),
+                    candidate_id=recognition.get("candidate_id"),
+                    exam_id=recognition.get("exam_id"),
+                    recognition_image_url=recognition.get("recognition_image_url"),
+                    additional_info=recognition.get("additional_info")
+                )
+            
+            # Get parameters for query
+            params = recognition.to_dict()
             
             # Execute Cypher query to create/update recognition
             query = RecognitionNode.create_query()
             result = await self.neo4j.execute_query(query, params)
             
-            # Create relationships if possible
+            # Create relationships if result is successful
             if result and len(result) > 0:
+                # Create relationships with other nodes
                 if hasattr(recognition, 'create_relationships_query'):
                     rel_query = recognition.create_relationships_query()
                     await self.neo4j.execute_query(rel_query, params)
+                
+                # Create INSTANCE_OF relationship if the method exists
+                if hasattr(recognition, 'create_instance_of_relationship_query'):
+                    instance_query = recognition.create_instance_of_relationship_query()
+                    await self.neo4j.execute_query(instance_query, params)
+                    logger.info(f"Created INSTANCE_OF relationship for recognition {recognition.recognition_id}")
+                
+                logger.info(f"Successfully created/updated recognition {recognition.recognition_id} in Neo4j")
                 return True
-            return False
+            else:
+                logger.error(f"Failed to create/update recognition in Neo4j")
+                return False
         except Exception as e:
-            print(f"Error creating/updating recognition in Neo4j: {e}")
+            logger.error(f"Error creating/updating recognition in Neo4j: {e}")
             return False
     
     async def get_by_id(self, recognition_id):
@@ -64,10 +96,14 @@ class RecognitionGraphRepository:
         """
         params = {"recognition_id": recognition_id}
         
-        result = await self.neo4j.execute_query(query, params)
-        if result and len(result) > 0:
-            return RecognitionNode.from_record({"r": result[0][0]})
-        return None
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            if result and len(result) > 0:
+                return RecognitionNode.from_record({"r": result[0][0]})
+            return None
+        except Exception as e:
+            logger.error(f"Error retrieving recognition by ID: {e}")
+            return None
     
     async def delete(self, recognition_id):
         """
@@ -87,9 +123,10 @@ class RecognitionGraphRepository:
         
         try:
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Successfully deleted recognition {recognition_id}")
             return True
         except Exception as e:
-            print(f"Error deleting recognition from Neo4j: {e}")
+            logger.error(f"Error deleting recognition from Neo4j: {e}")
             return False
     
     async def get_by_candidate(self, candidate_id):
@@ -102,8 +139,8 @@ class RecognitionGraphRepository:
         Returns:
             List of recognitions
         """
-        query = """
-        MATCH (c:Candidate {candidate_id: $candidate_id})-[:RECEIVES_RECOGNITION]->(r:Recognition)
+        query = f"""
+        MATCH (c:Candidate {{candidate_id: $candidate_id}})-[:{RECEIVES_RECOGNITION_REL}]->(r:Recognition)
         RETURN r
         """
         params = {"candidate_id": candidate_id}
@@ -118,7 +155,7 @@ class RecognitionGraphRepository:
             
             return recognitions
         except Exception as e:
-            print(f"Error getting recognitions for candidate: {e}")
+            logger.error(f"Error getting recognitions for candidate {candidate_id}: {e}")
             return []
     
     async def get_by_exam(self, exam_id):
@@ -131,8 +168,8 @@ class RecognitionGraphRepository:
         Returns:
             List of recognitions
         """
-        query = """
-        MATCH (r:Recognition)-[:AWARDED_IN]->(e:Exam {exam_id: $exam_id})
+        query = f"""
+        MATCH (r:Recognition)-[:{RECOGNITION_FOR_EXAM_REL}]->(e:Exam {{exam_id: $exam_id}})
         RETURN r
         """
         params = {"exam_id": exam_id}
@@ -147,7 +184,7 @@ class RecognitionGraphRepository:
             
             return recognitions
         except Exception as e:
-            print(f"Error getting recognitions for exam: {e}")
+            logger.error(f"Error getting recognitions for exam {exam_id}: {e}")
             return []
     
     async def get_by_recognition_type(self, recognition_type):
@@ -177,7 +214,7 @@ class RecognitionGraphRepository:
             
             return recognitions
         except Exception as e:
-            print(f"Error getting recognitions by type: {e}")
+            logger.error(f"Error getting recognitions by type {recognition_type}: {e}")
             return []
     
     async def get_by_organization(self, organization):
@@ -207,7 +244,7 @@ class RecognitionGraphRepository:
             
             return recognitions
         except Exception as e:
-            print(f"Error getting recognitions by organization: {e}")
+            logger.error(f"Error getting recognitions by organization {organization}: {e}")
             return []
     
     async def get_all_recognitions(self, limit=100):
@@ -235,7 +272,8 @@ class RecognitionGraphRepository:
                 recognition = RecognitionNode.from_record({"r": record[0]})
                 recognitions.append(recognition.to_dict())
             
+            logger.info(f"Retrieved {len(recognitions)} recognition nodes")
             return recognitions
         except Exception as e:
-            print(f"Error getting all recognitions: {e}")
+            logger.error(f"Error getting all recognitions: {e}")
             return [] 

@@ -4,7 +4,7 @@ Credential Graph Repository module.
 This module provides methods for interacting with Credential nodes in Neo4j.
 """
 
-from app.domain.graph_models.credential_node import CredentialNode
+from app.domain.graph_models.credential_node import CredentialNode, PROVIDES_CREDENTIAL_REL, INSTANCE_OF_REL
 from app.infrastructure.ontology.ontology import RELATIONSHIPS
 
 class CredentialGraphRepository:
@@ -39,6 +39,9 @@ class CredentialGraphRepository:
             
             # Create relationships if possible
             if result and len(result) > 0:
+                # Create INSTANCE_OF relationship with Credential class
+                await self._create_instance_of_relationship(params.get('credential_id'))
+                
                 if hasattr(credential, 'create_relationships_query'):
                     rel_query = credential.create_relationships_query()
                     await self.neo4j.execute_query(rel_query, params)
@@ -47,6 +50,21 @@ class CredentialGraphRepository:
         except Exception as e:
             print(f"Error creating/updating credential in Neo4j: {e}")
             return False
+    
+    async def _create_instance_of_relationship(self, credential_id):
+        """
+        Tạo mối quan hệ INSTANCE_OF giữa node instance và class node tương ứng.
+        
+        Args:
+            credential_id: ID của node instance
+        """
+        try:
+            query = CredentialNode.create_instance_of_relationship_query()
+            await self.neo4j.execute_query(query, {"credential_id": credential_id})
+            print(f"Created INSTANCE_OF relationship for credential {credential_id}")
+        except Exception as e:
+            print(f"Error creating INSTANCE_OF relationship for credential {credential_id}: {e}")
+            raise
     
     async def get_by_id(self, credential_id):
         """
@@ -102,8 +120,8 @@ class CredentialGraphRepository:
         Returns:
             List of credentials
         """
-        query = """
-        MATCH (ca:Candidate {candidate_id: $candidate_id})-[:HAS_CREDENTIAL]->(c:Credential)
+        query = f"""
+        MATCH (ca:Candidate {{candidate_id: $candidate_id}})-[:{PROVIDES_CREDENTIAL_REL}]->(c:Credential)
         RETURN c
         """
         params = {"candidate_id": candidate_id}

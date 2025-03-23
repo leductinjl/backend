@@ -4,6 +4,14 @@ Degree Node model.
 This module defines the DegreeNode class for representing Degree entities in the Neo4j graph.
 """
 
+from app.infrastructure.ontology.ontology import RELATIONSHIPS, CLASSES
+
+# Import specific relationships
+HOLDS_DEGREE_REL = RELATIONSHIPS["HOLDS_DEGREE"]["type"]
+IN_MAJOR_REL = RELATIONSHIPS["IN_MAJOR"]["type"]
+ISSUED_BY_REL = RELATIONSHIPS["ISSUED_BY"]["type"]
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+
 class DegreeNode:
     """
     Model for Degree node in Neo4j Knowledge Graph.
@@ -95,27 +103,40 @@ class DegreeNode:
         Returns:
             Query tạo quan hệ với các node khác
         """
-        return """
+        return f"""
         // Tạo quan hệ với Candidate nếu có
-        OPTIONAL MATCH (c:Candidate {candidate_id: $candidate_id})
+        OPTIONAL MATCH (c:Candidate {{candidate_id: $candidate_id}})
         WITH c
         WHERE c IS NOT NULL
-        MATCH (d:Degree {degree_id: $degree_id})
-        MERGE (c)-[:HOLDS_DEGREE]->(d)
+        MATCH (d:Degree {{degree_id: $degree_id}})
+        MERGE (c)-[:{HOLDS_DEGREE_REL}]->(d)
         
         // Tạo quan hệ với Major nếu có
         WITH d
-        OPTIONAL MATCH (m:Major {major_id: $major_id})
+        OPTIONAL MATCH (m:Major {{major_id: $major_id}})
         WITH d, m
         WHERE m IS NOT NULL
-        MERGE (d)-[:IN_MAJOR]->(m)
+        MERGE (d)-[:{IN_MAJOR_REL}]->(m)
         
         // Tạo quan hệ với School nếu có
         WITH d
-        OPTIONAL MATCH (s:School {school_id: $school_id})
+        OPTIONAL MATCH (s:School {{school_id: $school_id}})
         WITH d, s
         WHERE s IS NOT NULL
-        MERGE (d)-[:ISSUED_BY]->(s)
+        MERGE (d)-[:{ISSUED_BY_REL}]->(s)
+        """
+    
+    @staticmethod
+    def create_instance_of_relationship_query():
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node Degree
+        và node class Degree trong ontology.
+        """
+        return f"""
+        MATCH (instance:Degree:OntologyInstance {{degree_id: $degree_id}})
+        MATCH (class:OntologyClass {{id: 'degree-class'}})
+        MERGE (instance)-[r:{INSTANCE_OF_REL}]->(class)
+        RETURN r
         """
     
     def to_dict(self):

@@ -7,6 +7,11 @@ This module provides methods for interacting with Certificate nodes in Neo4j.
 from app.domain.graph_models.certificate_node import CertificateNode
 from app.infrastructure.ontology.ontology import RELATIONSHIPS
 
+# Import specific relationships
+EARNS_CERTIFICATE_REL = RELATIONSHIPS["EARNS_CERTIFICATE"]["type"]
+CERTIFICATE_FOR_EXAM_REL = RELATIONSHIPS["CERTIFICATE_FOR_EXAM"]["type"]
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+
 class CertificateGraphRepository:
     """
     Repository for managing Certificate nodes in Neo4j knowledge graph.
@@ -39,6 +44,9 @@ class CertificateGraphRepository:
             
             # Create relationships if possible
             if result and len(result) > 0:
+                # Create INSTANCE_OF relationship with Certificate class
+                await self._create_instance_of_relationship(params.get('certificate_id'))
+                
                 if hasattr(certificate, 'create_relationships_query'):
                     rel_query = certificate.create_relationships_query()
                     await self.neo4j.execute_query(rel_query, params)
@@ -47,6 +55,21 @@ class CertificateGraphRepository:
         except Exception as e:
             print(f"Error creating/updating certificate in Neo4j: {e}")
             return False
+    
+    async def _create_instance_of_relationship(self, certificate_id):
+        """
+        Tạo mối quan hệ INSTANCE_OF giữa node instance và class node tương ứng.
+        
+        Args:
+            certificate_id: ID của node instance
+        """
+        try:
+            query = CertificateNode.create_instance_of_relationship_query()
+            await self.neo4j.execute_query(query, {"certificate_id": certificate_id})
+            print(f"Created INSTANCE_OF relationship for certificate {certificate_id}")
+        except Exception as e:
+            print(f"Error creating INSTANCE_OF relationship for certificate {certificate_id}: {e}")
+            raise
     
     async def get_by_id(self, certificate_id):
         """
@@ -102,8 +125,8 @@ class CertificateGraphRepository:
         Returns:
             List of certificates
         """
-        query = """
-        MATCH (c:Candidate {candidate_id: $candidate_id})-[:EARNS_CERTIFICATE]->(cert:Certificate)
+        query = f"""
+        MATCH (c:Candidate {{candidate_id: $candidate_id}})-[:{EARNS_CERTIFICATE_REL}]->(cert:Certificate)
         RETURN cert
         """
         params = {"candidate_id": candidate_id}
@@ -131,8 +154,8 @@ class CertificateGraphRepository:
         Returns:
             List of certificates
         """
-        query = """
-        MATCH (cert:Certificate)-[:AWARDED_IN]->(e:Exam {exam_id: $exam_id})
+        query = f"""
+        MATCH (cert:Certificate)-[:{CERTIFICATE_FOR_EXAM_REL}]->(e:Exam {{exam_id: $exam_id}})
         RETURN cert
         """
         params = {"exam_id": exam_id}

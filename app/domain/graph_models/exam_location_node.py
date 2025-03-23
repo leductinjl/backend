@@ -4,6 +4,11 @@ Exam Location Node model.
 This module defines the ExamLocationNode class for representing ExamLocation entities in the Neo4j graph.
 """
 
+from app.infrastructure.ontology.ontology import RELATIONSHIPS, CLASSES
+
+# Define relationship constants
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+
 class ExamLocationNode:
     """
     Model for ExamLocation node in Neo4j Knowledge Graph.
@@ -40,13 +45,12 @@ class ExamLocationNode:
         """
         Tạo Cypher query để tạo hoặc cập nhật node ExamLocation.
         
-        Query này tuân theo định nghĩa ontology, bao gồm thiết lập nhãn Thing
+        Query này tuân theo định nghĩa ontology, bao gồm thiết lập nhãn OntologyInstance
         và các thuộc tính được định nghĩa trong ontology.
         """
         return """
-        MERGE (l:ExamLocation {location_id: $location_id})
+        MERGE (l:ExamLocation:OntologyInstance {location_id: $location_id})
         ON CREATE SET
-            l:Thing, 
             l.location_name = $location_name,
             l.name = $name,
             l.address = $address,
@@ -79,6 +83,19 @@ class ExamLocationNode:
         # Currently, ExamLocation doesn't have predefined relationships in the model
         # Return an empty string to indicate no relationships to establish
         return ""
+    
+    def create_instance_of_relationship_query(self):
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node ExamLocation và class definition.
+        
+        Returns:
+            Query tạo quan hệ INSTANCE_OF
+        """
+        return f"""
+        MATCH (l:ExamLocation:OntologyInstance {{location_id: $location_id}})
+        MATCH (class:OntologyClass {{id: 'exam-location-class'}})
+        MERGE (l)-[:{INSTANCE_OF_REL}]->(class)
+        """
     
     def to_dict(self):
         """

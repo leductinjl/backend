@@ -7,6 +7,11 @@ This module provides methods for interacting with Award nodes in Neo4j.
 from app.domain.graph_models.award_node import AwardNode
 from app.infrastructure.ontology.ontology import RELATIONSHIPS
 
+# Import specific relationships
+EARNS_AWARD_REL = RELATIONSHIPS["EARNS_AWARD"]["type"]
+AWARD_FOR_EXAM_REL = RELATIONSHIPS["AWARD_FOR_EXAM"]["type"]
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+
 class AwardGraphRepository:
     """
     Repository for managing Award nodes in Neo4j knowledge graph.
@@ -39,6 +44,9 @@ class AwardGraphRepository:
             
             # Create relationships if possible
             if result and len(result) > 0:
+                # Create INSTANCE_OF relationship with Award class
+                await self._create_instance_of_relationship(params.get('award_id'))
+                
                 if hasattr(award, 'create_relationships_query'):
                     rel_query = award.create_relationships_query()
                     await self.neo4j.execute_query(rel_query, params)
@@ -47,6 +55,21 @@ class AwardGraphRepository:
         except Exception as e:
             print(f"Error creating/updating award in Neo4j: {e}")
             return False
+    
+    async def _create_instance_of_relationship(self, award_id):
+        """
+        Tạo mối quan hệ INSTANCE_OF giữa node instance và class node tương ứng.
+        
+        Args:
+            award_id: ID của node instance
+        """
+        try:
+            query = AwardNode.create_instance_of_relationship_query()
+            await self.neo4j.execute_query(query, {"award_id": award_id})
+            print(f"Created INSTANCE_OF relationship for award {award_id}")
+        except Exception as e:
+            print(f"Error creating INSTANCE_OF relationship for award {award_id}: {e}")
+            raise
     
     async def get_by_id(self, award_id):
         """
@@ -102,8 +125,8 @@ class AwardGraphRepository:
         Returns:
             List of awards
         """
-        query = """
-        MATCH (c:Candidate {candidate_id: $candidate_id})-[:RECEIVES_AWARD]->(a:Award)
+        query = f"""
+        MATCH (c:Candidate {{candidate_id: $candidate_id}})-[:{EARNS_AWARD_REL}]->(a:Award)
         RETURN a
         """
         params = {"candidate_id": candidate_id}
@@ -131,8 +154,8 @@ class AwardGraphRepository:
         Returns:
             List of awards
         """
-        query = """
-        MATCH (a:Award)-[:AWARDED_IN]->(e:Exam {exam_id: $exam_id})
+        query = f"""
+        MATCH (a:Award)-[:{AWARD_FOR_EXAM_REL}]->(e:Exam {{exam_id: $exam_id}})
         RETURN a
         """
         params = {"exam_id": exam_id}

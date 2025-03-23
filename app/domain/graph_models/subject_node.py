@@ -4,6 +4,14 @@ Subject Node model.
 This module defines the SubjectNode class for representing Subject entities in the Neo4j graph.
 """
 
+from app.infrastructure.ontology.ontology import RELATIONSHIPS, CLASSES
+
+# Import specific relationships
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+FOR_SUBJECT_REL = RELATIONSHIPS["FOR_SUBJECT"]["type"]
+IN_EXAM_REL = RELATIONSHIPS["IN_EXAM"]["type"]
+INCLUDES_SUBJECT_REL = RELATIONSHIPS["INCLUDES_SUBJECT"]["type"]
+
 class SubjectNode:
     """
     Model for Subject node in Neo4j Knowledge Graph.
@@ -32,6 +40,7 @@ class SubjectNode:
         return """
         MERGE (s:Subject:OntologyInstance {subject_id: $subject_id})
         ON CREATE SET
+            s:Thing,
             s.subject_name = $subject_name,
             s.name = $name,
             s.description = $description,
@@ -44,6 +53,19 @@ class SubjectNode:
             s.subject_code = $subject_code,
             s.updated_at = datetime()
         RETURN s
+        """
+    
+    def create_instance_of_relationship_query(self):
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node Subject và class definition.
+        
+        Returns:
+            Query tạo quan hệ INSTANCE_OF
+        """
+        return f"""
+        MATCH (s:Subject:OntologyInstance {{subject_id: $subject_id}})
+        MATCH (class:OntologyClass {{id: 'subject-class'}})
+        MERGE (s)-[:{INSTANCE_OF_REL}]->(class)
         """
     
     def to_dict(self):

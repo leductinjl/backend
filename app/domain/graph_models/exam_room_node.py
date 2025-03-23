@@ -4,6 +4,12 @@ Exam Room Node model.
 This module defines the ExamRoomNode class for representing ExamRoom entities in the Neo4j graph.
 """
 
+from app.infrastructure.ontology.ontology import RELATIONSHIPS, CLASSES
+
+# Define relationship constants
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+LOCATED_IN_REL = RELATIONSHIPS["LOCATED_IN"]["type"]
+
 class ExamRoomNode:
     """
     Model for ExamRoom node in Neo4j Knowledge Graph.
@@ -46,11 +52,11 @@ class ExamRoomNode:
         """
         Tạo Cypher query để tạo hoặc cập nhật node ExamRoom.
         
-        Query này tuân theo định nghĩa ontology, bao gồm thiết lập nhãn Thing
+        Query này tuân theo định nghĩa ontology, bao gồm thiết lập nhãn OntologyInstance
         và các thuộc tính được định nghĩa trong ontology.
         """
         return """
-        MERGE (r:ExamRoom {room_id: $room_id})
+        MERGE (r:ExamRoom:OntologyInstance {room_id: $room_id})
         ON CREATE SET
             r:Thing, 
             r.room_name = $room_name,
@@ -84,13 +90,26 @@ class ExamRoomNode:
         Returns:
             Query tạo quan hệ với các node khác
         """
-        return """
+        return f"""
         // Tạo quan hệ với ExamLocation nếu có
-        MATCH (r:ExamRoom {room_id: $room_id})
-        OPTIONAL MATCH (l:ExamLocation {location_id: $location_id})
+        MATCH (r:ExamRoom {{room_id: $room_id}})
+        OPTIONAL MATCH (l:ExamLocation {{location_id: $location_id}})
         WITH r, l
         WHERE l IS NOT NULL
-        MERGE (r)-[:LOCATED_IN]->(l)
+        MERGE (r)-[:{LOCATED_IN_REL}]->(l)
+        """
+    
+    def create_instance_of_relationship_query(self):
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node ExamRoom và class definition.
+        
+        Returns:
+            Query tạo quan hệ INSTANCE_OF
+        """
+        return f"""
+        MATCH (r:ExamRoom:OntologyInstance {{room_id: $room_id}})
+        MATCH (class:OntologyClass {{id: 'exam-room-class'}})
+        MERGE (r)-[:{INSTANCE_OF_REL}]->(class)
         """
     
     def to_dict(self):

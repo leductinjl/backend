@@ -4,6 +4,11 @@ Exam Node model.
 This module defines the ExamNode class for representing Exam entities in the Neo4j graph.
 """
 
+from app.infrastructure.ontology.ontology import RELATIONSHIPS, CLASSES
+
+# Define relationship constants
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+
 class ExamNode:
     """
     Model for Exam node in Neo4j Knowledge Graph
@@ -44,6 +49,19 @@ class ExamNode:
             e.scope = $scope,
             e.updated_at = datetime()
         RETURN e
+        """
+    
+    def create_instance_of_relationship_query(self):
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node Exam và class definition.
+        
+        Returns:
+            Query tạo quan hệ INSTANCE_OF
+        """
+        return f"""
+        MATCH (e:Exam:OntologyInstance {{exam_id: $exam_id}})
+        MATCH (class:OntologyClass {{id: 'exam-class'}})
+        MERGE (e)-[:{INSTANCE_OF_REL}]->(class)
         """
     
     def to_dict(self):

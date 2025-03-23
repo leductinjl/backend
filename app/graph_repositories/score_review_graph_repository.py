@@ -10,7 +10,10 @@ from typing import Dict, List, Optional, Union
 from neo4j import Driver
 from neo4j.exceptions import Neo4jError
 
-from app.domain.graph_models.score_review_node import ScoreReviewNode
+from app.domain.graph_models.score_review_node import (
+    ScoreReviewNode, INSTANCE_OF_REL, REQUESTS_REVIEW_REL, 
+    FOR_SUBJECT_REL, IN_EXAM_REL, REVIEWS_REL
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +79,17 @@ class ScoreReviewGraphRepository:
                     )
                 )
                 
+                # Tạo mối quan hệ INSTANCE_OF
+                if hasattr(review, 'create_instance_of_relationship_query'):
+                    session.execute_write(
+                        lambda tx: tx.run(
+                            review.create_instance_of_relationship_query(),
+                            **review.to_dict()
+                        )
+                    )
+                    logger.info(f"Created INSTANCE_OF relationship for ScoreReview {review.review_id}")
+                
+                logger.info(f"Successfully created/updated ScoreReview node: {review.review_id}")
                 return ScoreReviewNode.from_record(result)
         except Neo4jError as e:
             logger.error(f"Error creating/updating ScoreReview node: {e}")
@@ -133,7 +147,12 @@ class ScoreReviewGraphRepository:
                 result = session.execute_write(
                     lambda tx: tx.run(query, review_id=review_id).single()
                 )
-                return result and result["deleted_count"] > 0
+                deleted = result and result["deleted_count"] > 0
+                if deleted:
+                    logger.info(f"Successfully deleted ScoreReview: {review_id}")
+                else:
+                    logger.warning(f"No ScoreReview found to delete with ID: {review_id}")
+                return deleted
         except Neo4jError as e:
             logger.error(f"Error deleting ScoreReview: {e}")
             return False
@@ -151,8 +170,8 @@ class ScoreReviewGraphRepository:
         Returns:
             Danh sách các ScoreReviewNode của thí sinh
         """
-        query = """
-        MATCH (c:Candidate {candidate_id: $candidate_id})-[:REQUESTED]->(r:ScoreReview)
+        query = f"""
+        MATCH (c:Candidate {{candidate_id: $candidate_id}})-[:{REQUESTS_REVIEW_REL}]->(r:ScoreReview)
         RETURN r
         """
         
@@ -161,7 +180,9 @@ class ScoreReviewGraphRepository:
                 result = session.execute_read(
                     lambda tx: tx.run(query, candidate_id=candidate_id).data()
                 )
-                return [ScoreReviewNode.from_record(record) for record in result]
+                reviews = [ScoreReviewNode.from_record(record) for record in result]
+                logger.info(f"Retrieved {len(reviews)} score reviews for candidate {candidate_id}")
+                return reviews
         except Neo4jError as e:
             logger.error(f"Error retrieving reviews by candidate: {e}")
             return []
@@ -179,8 +200,8 @@ class ScoreReviewGraphRepository:
         Returns:
             Danh sách các ScoreReviewNode cho điểm
         """
-        query = """
-        MATCH (r:ScoreReview)-[:REVIEWS]->(s:Score {score_id: $score_id})
+        query = f"""
+        MATCH (r:ScoreReview)-[:{REVIEWS_REL}]->(s:Score {{score_id: $score_id}})
         RETURN r
         """
         
@@ -189,7 +210,9 @@ class ScoreReviewGraphRepository:
                 result = session.execute_read(
                     lambda tx: tx.run(query, score_id=score_id).data()
                 )
-                return [ScoreReviewNode.from_record(record) for record in result]
+                reviews = [ScoreReviewNode.from_record(record) for record in result]
+                logger.info(f"Retrieved {len(reviews)} score reviews for score {score_id}")
+                return reviews
         except Neo4jError as e:
             logger.error(f"Error retrieving reviews by score: {e}")
             return []
@@ -207,8 +230,8 @@ class ScoreReviewGraphRepository:
         Returns:
             Danh sách các ScoreReviewNode trong kỳ thi
         """
-        query = """
-        MATCH (r:ScoreReview)-[:IN_EXAM]->(e:Exam {exam_id: $exam_id})
+        query = f"""
+        MATCH (r:ScoreReview)-[:{IN_EXAM_REL}]->(e:Exam {{exam_id: $exam_id}})
         RETURN r
         """
         
@@ -217,7 +240,9 @@ class ScoreReviewGraphRepository:
                 result = session.execute_read(
                     lambda tx: tx.run(query, exam_id=exam_id).data()
                 )
-                return [ScoreReviewNode.from_record(record) for record in result]
+                reviews = [ScoreReviewNode.from_record(record) for record in result]
+                logger.info(f"Retrieved {len(reviews)} score reviews for exam {exam_id}")
+                return reviews
         except Neo4jError as e:
             logger.error(f"Error retrieving reviews by exam: {e}")
             return []
@@ -235,8 +260,8 @@ class ScoreReviewGraphRepository:
         Returns:
             Danh sách các ScoreReviewNode cho môn học
         """
-        query = """
-        MATCH (r:ScoreReview)-[:FOR_SUBJECT]->(s:Subject {subject_id: $subject_id})
+        query = f"""
+        MATCH (r:ScoreReview)-[:{FOR_SUBJECT_REL}]->(s:Subject {{subject_id: $subject_id}})
         RETURN r
         """
         
@@ -245,7 +270,9 @@ class ScoreReviewGraphRepository:
                 result = session.execute_read(
                     lambda tx: tx.run(query, subject_id=subject_id).data()
                 )
-                return [ScoreReviewNode.from_record(record) for record in result]
+                reviews = [ScoreReviewNode.from_record(record) for record in result]
+                logger.info(f"Retrieved {len(reviews)} score reviews for subject {subject_id}")
+                return reviews
         except Neo4jError as e:
             logger.error(f"Error retrieving reviews by subject: {e}")
             return []
@@ -274,7 +301,9 @@ class ScoreReviewGraphRepository:
                 result = session.execute_read(
                     lambda tx: tx.run(query, status=status).data()
                 )
-                return [ScoreReviewNode.from_record(record) for record in result]
+                reviews = [ScoreReviewNode.from_record(record) for record in result]
+                logger.info(f"Retrieved {len(reviews)} score reviews with status '{status}'")
+                return reviews
         except Neo4jError as e:
             logger.error(f"Error retrieving reviews by status: {e}")
             return []
@@ -299,7 +328,9 @@ class ScoreReviewGraphRepository:
                 result = session.execute_read(
                     lambda tx: tx.run(query).data()
                 )
-                return [ScoreReviewNode.from_record(record) for record in result]
+                reviews = [ScoreReviewNode.from_record(record) for record in result]
+                logger.info(f"Retrieved {len(reviews)} score reviews in total")
+                return reviews
         except Neo4jError as e:
             logger.error(f"Error retrieving all reviews: {e}")
             return []

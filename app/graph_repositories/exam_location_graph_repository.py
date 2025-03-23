@@ -4,8 +4,15 @@ Exam Location Graph Repository module.
 This module provides methods for interacting with ExamLocation nodes in Neo4j.
 """
 
-from app.domain.graph_models.exam_location_node import ExamLocationNode
+from app.domain.graph_models.exam_location_node import ExamLocationNode, INSTANCE_OF_REL
 from app.infrastructure.ontology.ontology import RELATIONSHIPS
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Define relationship constants
+HELD_AT_REL = RELATIONSHIPS["HELD_AT"]["type"]
+LOCATED_IN_REL = RELATIONSHIPS["LOCATED_IN"]["type"]
 
 class ExamLocationGraphRepository:
     """
@@ -38,10 +45,15 @@ class ExamLocationGraphRepository:
             result = await self.neo4j.execute_query(query, params)
             
             if result and len(result) > 0:
+                # Create INSTANCE_OF relationship
+                if hasattr(location, 'create_instance_of_relationship_query'):
+                    instance_of_query = location.create_instance_of_relationship_query()
+                    await self.neo4j.execute_query(instance_of_query, params)
+                logger.info(f"Successfully created/updated exam location {params['location_id']} in Neo4j")
                 return True
             return False
         except Exception as e:
-            print(f"Error creating/updating exam location in Neo4j: {e}")
+            logger.error(f"Error creating/updating exam location in Neo4j: {e}", exc_info=True)
             return False
     
     async def get_by_id(self, location_id):
@@ -83,9 +95,10 @@ class ExamLocationGraphRepository:
         
         try:
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Successfully deleted exam location {location_id} from Neo4j")
             return True
         except Exception as e:
-            print(f"Error deleting exam location from Neo4j: {e}")
+            logger.error(f"Error deleting exam location from Neo4j: {e}")
             return False
     
     async def get_exams(self, location_id):
@@ -98,8 +111,8 @@ class ExamLocationGraphRepository:
         Returns:
             List of exams
         """
-        query = """
-        MATCH (e:Exam)-[:HELD_AT]->(l:ExamLocation {location_id: $location_id})
+        query = f"""
+        MATCH (e:Exam)-[:{HELD_AT_REL}]->(l:ExamLocation {{location_id: $location_id}})
         RETURN e
         """
         params = {"location_id": location_id}
@@ -115,7 +128,7 @@ class ExamLocationGraphRepository:
             
             return exams
         except Exception as e:
-            print(f"Error getting exams for location: {e}")
+            logger.error(f"Error getting exams for location: {e}")
             return []
     
     async def get_rooms(self, location_id):
@@ -128,8 +141,8 @@ class ExamLocationGraphRepository:
         Returns:
             List of exam rooms
         """
-        query = """
-        MATCH (r:ExamRoom)-[:LOCATED_IN]->(l:ExamLocation {location_id: $location_id})
+        query = f"""
+        MATCH (r:ExamRoom)-[:{LOCATED_IN_REL}]->(l:ExamLocation {{location_id: $location_id}})
         RETURN r
         """
         params = {"location_id": location_id}
@@ -145,7 +158,7 @@ class ExamLocationGraphRepository:
             
             return rooms
         except Exception as e:
-            print(f"Error getting rooms for location: {e}")
+            logger.error(f"Error getting rooms for location: {e}")
             return []
     
     async def get_all_locations(self, limit=100):
@@ -175,7 +188,7 @@ class ExamLocationGraphRepository:
             
             return locations
         except Exception as e:
-            print(f"Error getting all exam locations: {e}")
+            logger.error(f"Error getting all exam locations: {e}")
             return []
     
     async def add_held_at_relationship(self, exam_id, location_id):
@@ -198,7 +211,8 @@ class ExamLocationGraphRepository:
         
         try:
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Added HELD_AT relationship between exam {exam_id} and location {location_id}")
             return True
         except Exception as e:
-            print(f"Error adding HELD_AT relationship: {e}")
+            logger.error(f"Error adding HELD_AT relationship: {e}")
             return False 

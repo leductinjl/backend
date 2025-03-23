@@ -6,6 +6,15 @@ This module defines the ExamScheduleNode class for representing ExamSchedule ent
 
 from datetime import datetime
 from typing import Optional, Dict, Any
+from app.infrastructure.ontology.ontology import RELATIONSHIPS, CLASSES
+
+# Define relationship constants
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+FOLLOWS_SCHEDULE_REL = RELATIONSHIPS["FOLLOWS_SCHEDULE"]["type"]
+HAS_EXAM_SCHEDULE_REL = RELATIONSHIPS["HAS_EXAM_SCHEDULE"]["type"]
+ASSIGNED_TO_REL = RELATIONSHIPS["ASSIGNED_TO"]["type"]
+SCHEDULES_SUBJECT_REL = RELATIONSHIPS["SCHEDULES_SUBJECT"]["type"]
+SCHEDULE_AT_REL = RELATIONSHIPS["SCHEDULE_AT"]["type"]
 
 class ExamScheduleNode:
     """
@@ -17,48 +26,72 @@ class ExamScheduleNode:
     def __init__(
         self, 
         schedule_id,
+        exam_id=None,
+        subject_id=None,
         exam_subject_id=None,
+        location_id=None,
+        room_id=None,
         start_time=None,
         end_time=None,
         description=None,
-        status=None
+        status=None,
+        date=None,
+        additional_info=None
     ):
         # Thuộc tính định danh - bắt buộc
         self.schedule_id = schedule_id
         
         # Thuộc tính quan hệ - tùy chọn
+        self.exam_id = exam_id
+        self.subject_id = subject_id
         self.exam_subject_id = exam_subject_id
+        self.location_id = location_id
+        self.room_id = room_id
         
         # Thuộc tính bổ sung - tùy chọn
         self.start_time = start_time
         self.end_time = end_time
         self.description = description
         self.status = status
+        self.date = date
+        self.additional_info = additional_info
         
     @staticmethod
     def create_query():
         """
         Tạo Cypher query để tạo hoặc cập nhật node ExamSchedule.
         
-        Query này tuân theo định nghĩa ontology, bao gồm thiết lập nhãn Thing
+        Query này tuân theo định nghĩa ontology, bao gồm thiết lập nhãn OntologyInstance
         và các thuộc tính được định nghĩa trong ontology.
         """
         return """
-        MERGE (s:ExamSchedule {schedule_id: $schedule_id})
+        MERGE (s:ExamSchedule:OntologyInstance {schedule_id: $schedule_id})
         ON CREATE SET
             s:Thing, 
+            s.exam_id = $exam_id,
+            s.subject_id = $subject_id,
             s.exam_subject_id = $exam_subject_id,
+            s.location_id = $location_id,
+            s.room_id = $room_id,
             s.start_time = $start_time,
             s.end_time = $end_time,
             s.description = $description,
             s.status = $status,
+            s.date = $date,
+            s.additional_info = $additional_info,
             s.created_at = datetime()
         ON MATCH SET
+            s.exam_id = $exam_id,
+            s.subject_id = $subject_id,
             s.exam_subject_id = $exam_subject_id,
+            s.location_id = $location_id,
+            s.room_id = $room_id,
             s.start_time = $start_time,
             s.end_time = $end_time,
             s.description = $description,
             s.status = $status,
+            s.date = $date,
+            s.additional_info = $additional_info,
             s.updated_at = datetime()
         RETURN s
         """
@@ -67,11 +100,57 @@ class ExamScheduleNode:
         """
         Tạo Cypher query để thiết lập mối quan hệ giữa ExamSchedule và các node khác.
         """
-        return """
-        // Thiết lập quan hệ với ExamSubject (nếu có)
-        MATCH (s:ExamSchedule {schedule_id: $schedule_id})
-        MATCH (es:ExamSubject {exam_subject_id: $exam_subject_id})
-        MERGE (s)-[:SCHEDULES]->(es)
+        query_parts = []
+        
+        # Quan hệ với Exam
+        if self.exam_id:
+            query_parts.append(f"""
+            // Thiết lập quan hệ với Exam (nếu có)
+            MATCH (s:ExamSchedule {{schedule_id: $schedule_id}})
+            MATCH (e:Exam {{exam_id: $exam_id}})
+            MERGE (e)-[:{FOLLOWS_SCHEDULE_REL}]->(s)
+            """)
+        
+        # Quan hệ với ExamSubject (nếu có)
+        if self.exam_subject_id:
+            query_parts.append(f"""
+            // Thiết lập quan hệ với ExamSubject (nếu có)
+            MATCH (s:ExamSchedule {{schedule_id: $schedule_id}})
+            MATCH (es:ExamSubject {{exam_subject_id: $exam_subject_id}})
+            MERGE (s)-[:{SCHEDULES_SUBJECT_REL}]->(es)
+            """)
+        
+        # Quan hệ với ExamRoom (nếu có)
+        if self.room_id:
+            query_parts.append(f"""
+            // Thiết lập quan hệ với ExamRoom (nếu có)
+            MATCH (s:ExamSchedule {{schedule_id: $schedule_id}})
+            MATCH (r:ExamRoom {{room_id: $room_id}})
+            MERGE (s)-[:{ASSIGNED_TO_REL}]->(r)
+            """)
+        
+        # Quan hệ với ExamLocation (nếu có)
+        if self.location_id:
+            query_parts.append(f"""
+            // Thiết lập quan hệ với ExamLocation (nếu có)
+            MATCH (s:ExamSchedule {{schedule_id: $schedule_id}})
+            MATCH (l:ExamLocation {{location_id: $location_id}})
+            MERGE (s)-[:{SCHEDULE_AT_REL}]->(l)
+            """)
+        
+        return '\n'.join(query_parts) if query_parts else ""
+    
+    def create_instance_of_relationship_query(self):
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node ExamSchedule và class definition.
+        
+        Returns:
+            Query tạo quan hệ INSTANCE_OF
+        """
+        return f"""
+        MATCH (s:ExamSchedule:OntologyInstance {{schedule_id: $schedule_id}})
+        MATCH (class:OntologyClass {{id: 'exam-schedule-class'}})
+        MERGE (s)-[:{INSTANCE_OF_REL}]->(class)
         """
     
     def to_dict(self):
@@ -80,11 +159,29 @@ class ExamScheduleNode:
         """
         return {
             "schedule_id": self.schedule_id,
+            "exam_id": self.exam_id,
+            "subject_id": self.subject_id,
             "exam_subject_id": self.exam_subject_id,
+            "location_id": self.location_id,
+            "room_id": self.room_id,
             "start_time": self.start_time,
             "end_time": self.end_time,
             "description": self.description,
-            "status": self.status
+            "status": self.status,
+            "date": self.date,
+            "additional_info": self.additional_info,
+            # Các thuộc tính mặc định cho mối quan hệ (có thể được ghi đè bởi tham số)
+            "assigned_date": datetime.now().isoformat() if self.room_id else None,
+            "is_confirmed": True,
+            "is_primary": True,
+            "is_active": True,
+            "assignment_date": datetime.now().isoformat() if self.location_id else None,
+            "notes": "",
+            "duration_minutes": 0,
+            "max_score": 100,
+            "passing_score": 50,
+            "weight": 1.0,
+            "is_required": True
         }
     
     @classmethod
@@ -101,22 +198,34 @@ class ExamScheduleNode:
         if isinstance(schedule_model, dict):
             # Trường hợp schedule_model là dictionary
             return cls(
-                schedule_id=schedule_model.get('exam_schedule_id'),
+                schedule_id=schedule_model.get('exam_schedule_id') or schedule_model.get('schedule_id'),
+                exam_id=schedule_model.get('exam_id'),
+                subject_id=schedule_model.get('subject_id'),
                 exam_subject_id=schedule_model.get('exam_subject_id'),
+                location_id=schedule_model.get('location_id'),
+                room_id=schedule_model.get('room_id'),
                 start_time=schedule_model.get('start_time'),
                 end_time=schedule_model.get('end_time'),
                 description=schedule_model.get('description'),
-                status=schedule_model.get('status')
+                status=schedule_model.get('status'),
+                date=schedule_model.get('date'),
+                additional_info=schedule_model.get('additional_info')
             )
         else:
             # Trường hợp schedule_model là SQLAlchemy model
             return cls(
-                schedule_id=getattr(schedule_model, 'exam_schedule_id', None),
+                schedule_id=getattr(schedule_model, 'exam_schedule_id', None) or getattr(schedule_model, 'schedule_id', None),
+                exam_id=getattr(schedule_model, 'exam_id', None),
+                subject_id=getattr(schedule_model, 'subject_id', None),
                 exam_subject_id=getattr(schedule_model, 'exam_subject_id', None),
+                location_id=getattr(schedule_model, 'location_id', None),
+                room_id=getattr(schedule_model, 'room_id', None),
                 start_time=getattr(schedule_model, 'start_time', None),
                 end_time=getattr(schedule_model, 'end_time', None),
                 description=getattr(schedule_model, 'description', None),
-                status=getattr(schedule_model, 'status', None)
+                status=getattr(schedule_model, 'status', None),
+                date=getattr(schedule_model, 'date', None),
+                additional_info=getattr(schedule_model, 'additional_info', None)
             )
     
     @staticmethod
@@ -133,11 +242,17 @@ class ExamScheduleNode:
         node = record['s']  # 's' là alias cho schedule trong cypher query
         return ExamScheduleNode(
             schedule_id=node['schedule_id'],
+            exam_id=node.get('exam_id'),
+            subject_id=node.get('subject_id'),
             exam_subject_id=node.get('exam_subject_id'),
+            location_id=node.get('location_id'),
+            room_id=node.get('room_id'),
             start_time=node.get('start_time'),
             end_time=node.get('end_time'),
             description=node.get('description'),
-            status=node.get('status')
+            status=node.get('status'),
+            date=node.get('date'),
+            additional_info=node.get('additional_info')
         )
     
     def __repr__(self):

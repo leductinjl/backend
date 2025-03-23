@@ -7,6 +7,12 @@ This module provides methods for interacting with Degree nodes in Neo4j.
 from app.domain.graph_models.degree_node import DegreeNode
 from app.infrastructure.ontology.ontology import RELATIONSHIPS
 
+# Define relationship constants
+HOLDS_DEGREE_REL = RELATIONSHIPS["HOLDS_DEGREE"]["type"]
+IN_MAJOR_REL = RELATIONSHIPS["IN_MAJOR"]["type"]
+ISSUED_BY_REL = RELATIONSHIPS["ISSUED_BY"]["type"]
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+
 class DegreeGraphRepository:
     """
     Repository for managing Degree nodes in Neo4j knowledge graph.
@@ -39,6 +45,9 @@ class DegreeGraphRepository:
             
             # Create relationships if possible
             if result and len(result) > 0:
+                # Create INSTANCE_OF relationship with Degree class
+                await self._create_instance_of_relationship(params.get('degree_id'))
+                
                 if hasattr(degree, 'create_relationships_query'):
                     rel_query = degree.create_relationships_query()
                     await self.neo4j.execute_query(rel_query, params)
@@ -47,6 +56,21 @@ class DegreeGraphRepository:
         except Exception as e:
             print(f"Error creating/updating degree in Neo4j: {e}")
             return False
+    
+    async def _create_instance_of_relationship(self, degree_id):
+        """
+        Tạo mối quan hệ INSTANCE_OF giữa node instance và class node tương ứng.
+        
+        Args:
+            degree_id: ID của node instance
+        """
+        try:
+            query = DegreeNode.create_instance_of_relationship_query()
+            await self.neo4j.execute_query(query, {"degree_id": degree_id})
+            print(f"Created INSTANCE_OF relationship for degree {degree_id}")
+        except Exception as e:
+            print(f"Error creating INSTANCE_OF relationship for degree {degree_id}: {e}")
+            raise
     
     async def get_by_id(self, degree_id):
         """
@@ -102,8 +126,8 @@ class DegreeGraphRepository:
         Returns:
             List of degrees
         """
-        query = """
-        MATCH (c:Candidate {candidate_id: $candidate_id})-[:HOLDS_DEGREE]->(d:Degree)
+        query = f"""
+        MATCH (c:Candidate {{candidate_id: $candidate_id}})-[:{HOLDS_DEGREE_REL}]->(d:Degree)
         RETURN d
         """
         params = {"candidate_id": candidate_id}
@@ -131,8 +155,8 @@ class DegreeGraphRepository:
         Returns:
             List of degrees
         """
-        query = """
-        MATCH (d:Degree)-[:IN_MAJOR]->(m:Major {major_id: $major_id})
+        query = f"""
+        MATCH (d:Degree)-[:{IN_MAJOR_REL}]->(m:Major {{major_id: $major_id}})
         RETURN d
         """
         params = {"major_id": major_id}
@@ -160,8 +184,8 @@ class DegreeGraphRepository:
         Returns:
             List of degrees
         """
-        query = """
-        MATCH (d:Degree)-[:ISSUED_BY]->(s:School {school_id: $school_id})
+        query = f"""
+        MATCH (d:Degree)-[:{ISSUED_BY_REL}]->(s:School {{school_id: $school_id}})
         RETURN d
         """
         params = {"school_id": school_id}

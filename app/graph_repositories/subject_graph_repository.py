@@ -4,9 +4,13 @@ Subject Graph Repository module.
 This module provides methods for interacting with Subject nodes in Neo4j.
 """
 
-from app.domain.graph_models.subject_node import SubjectNode
-from app.infrastructure.ontology.ontology import RELATIONSHIPS
 import logging
+from typing import Dict, List, Optional, Union
+
+from app.domain.graph_models.subject_node import (
+    SubjectNode, INSTANCE_OF_REL, FOR_SUBJECT_REL, 
+    IN_EXAM_REL, INCLUDES_SUBJECT_REL
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,45 +37,36 @@ class SubjectGraphRepository:
             bool: True if operation successful, False otherwise
         """
         try:
-            # Ensure we have a dictionary
-            params = subject.to_dict() if hasattr(subject, 'to_dict') else subject
+            # Convert to SubjectNode if it's a dictionary
+            if isinstance(subject, dict):
+                subject = SubjectNode(
+                    subject_id=subject.get("subject_id"),
+                    subject_name=subject.get("subject_name"),
+                    description=subject.get("description"),
+                    subject_code=subject.get("subject_code")
+                )
+            
+            # Get parameters for query
+            params = subject.to_dict()
             
             # Execute Cypher query to create/update subject
             query = SubjectNode.create_query()
             result = await self.neo4j.execute_query(query, params)
             
             if result and len(result) > 0:
-                # Create IS_A relationship with Subject class
-                await self._create_is_a_relationship(params["subject_id"])
-                logger.info(f"Successfully created/updated subject {params['subject_id']} in Neo4j")
+                # Create INSTANCE_OF relationship
+                if hasattr(subject, 'create_instance_of_relationship_query'):
+                    instance_query = subject.create_instance_of_relationship_query()
+                    await self.neo4j.execute_query(instance_query, params)
+                    logger.info(f"Created INSTANCE_OF relationship for subject {subject.subject_id}")
+                
+                logger.info(f"Successfully created/updated subject {subject.subject_id} in Neo4j")
                 return True
+            
+            logger.error(f"Failed to create/update subject {subject.subject_id} in Neo4j")
             return False
         except Exception as e:
             logger.error(f"Error creating/updating subject in Neo4j: {e}", exc_info=True)
-            return False
-            
-    async def _create_is_a_relationship(self, subject_id):
-        """
-        Create INSTANCE_OF relationship between Subject node and Subject class node.
-        
-        Args:
-            subject_id: ID of the subject node
-        """
-        try:
-            query = """
-            MATCH (instance:Subject:OntologyInstance {subject_id: $subject_id})
-            MATCH (class:Subject:OntologyClass {id: 'subject-class'})
-            MERGE (instance)-[r:INSTANCE_OF]->(class)
-            RETURN r
-            """
-            params = {
-                "subject_id": subject_id
-            }
-            await self.neo4j.execute_query(query, params)
-            logger.info(f"Created INSTANCE_OF relationship for subject {subject_id}")
-            return True
-        except Exception as e:
-            logger.error(f"Error creating INSTANCE_OF relationship for subject {subject_id}: {e}")
             return False
     
     async def get_by_id(self, subject_id):
@@ -90,10 +85,17 @@ class SubjectGraphRepository:
         """
         params = {"subject_id": subject_id}
         
-        result = await self.neo4j.execute_query(query, params)
-        if result and len(result) > 0:
-            return SubjectNode.from_record({"s": result[0][0]})
-        return None
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            if result and len(result) > 0:
+                logger.info(f"Successfully retrieved subject {subject_id}")
+                return SubjectNode.from_record({"s": result[0][0]})
+            
+            logger.info(f"No subject found with ID {subject_id}")
+            return None
+        except Exception as e:
+            logger.error(f"Error retrieving subject by ID {subject_id}: {e}")
+            return None
     
     async def delete(self, subject_id):
         """
@@ -113,9 +115,10 @@ class SubjectGraphRepository:
         
         try:
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Successfully deleted subject {subject_id}")
             return True
         except Exception as e:
-            print(f"Error deleting subject from Neo4j: {e}")
+            logger.error(f"Error deleting subject {subject_id} from Neo4j: {e}")
             return False
     
     async def get_exams(self, subject_id):
@@ -128,8 +131,8 @@ class SubjectGraphRepository:
         Returns:
             List of exams with their relationship details
         """
-        query = """
-        MATCH (e:Exam)-[r:INCLUDES_SUBJECT]->(s:Subject {subject_id: $subject_id})
+        query = f"""
+        MATCH (e:Exam)-[r:{INCLUDES_SUBJECT_REL}]->(s:Subject {{subject_id: $subject_id}})
         RETURN e, r.exam_date as exam_date, r.duration_minutes as duration_minutes
         """
         params = {"subject_id": subject_id}
@@ -150,9 +153,10 @@ class SubjectGraphRepository:
                     "duration_minutes": duration_minutes
                 })
             
+            logger.info(f"Retrieved {len(exams)} exams for subject {subject_id}")
             return exams
         except Exception as e:
-            print(f"Error getting exams for subject: {e}")
+            logger.error(f"Error getting exams for subject {subject_id}: {e}")
             return []
     
     async def get_scores(self, subject_id):
@@ -165,10 +169,11 @@ class SubjectGraphRepository:
         Returns:
             List of scores with candidate and exam details
         """
-        query = """
-        MATCH (c:Candidate)-[r:SCORED_IN]->(s:Subject {subject_id: $subject_id})
-        MATCH (e:Exam)-[:INCLUDES_SUBJECT]->(s)
-        RETURN c, e, r.score as score, r.score_date as score_date
+        query = f"""
+        MATCH (s:Score)-[:{FOR_SUBJECT_REL}]->(subj:Subject {{subject_id: $subject_id}})
+        MATCH (c:Candidate)-[:RECEIVES_SCORE]->(s)
+        MATCH (s)-[:{IN_EXAM_REL}]->(e:Exam)
+        RETURN c, e, s.score_value as score, s.graded_at as score_date
         """
         params = {"subject_id": subject_id}
         
@@ -191,7 +196,29 @@ class SubjectGraphRepository:
                     "score_date": score_date
                 })
             
+            logger.info(f"Retrieved {len(scores)} scores for subject {subject_id}")
             return scores
         except Exception as e:
-            print(f"Error getting scores for subject: {e}")
+            logger.error(f"Error getting scores for subject {subject_id}: {e}")
+            return []
+    
+    async def get_all_subjects(self):
+        """
+        Get all subjects.
+        
+        Returns:
+            List of SubjectNode objects
+        """
+        query = """
+        MATCH (s:Subject)
+        RETURN s
+        """
+        
+        try:
+            result = await self.neo4j.execute_query(query)
+            subjects = [SubjectNode.from_record({"s": record[0]}) for record in result]
+            logger.info(f"Retrieved {len(subjects)} subjects in total")
+            return subjects
+        except Exception as e:
+            logger.error(f"Error retrieving all subjects: {e}")
             return [] 

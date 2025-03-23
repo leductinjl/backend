@@ -4,6 +4,13 @@ Achievement Node model.
 This module defines the AchievementNode class for representing Achievement entities in the Neo4j graph.
 """
 
+from app.infrastructure.ontology.ontology import RELATIONSHIPS, CLASSES
+
+# Import specific relationships
+ACHIEVES_REL = RELATIONSHIPS["ACHIEVES"]["type"]
+ACHIEVEMENT_FOR_EXAM_REL = RELATIONSHIPS["ACHIEVEMENT_FOR_EXAM"]["type"]
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+
 class AchievementNode:
     """
     Model for Achievement node in Neo4j Knowledge Graph.
@@ -79,20 +86,33 @@ class AchievementNode:
         Returns:
             Query tạo quan hệ với các node khác
         """
-        return """
+        return f"""
         // Tạo quan hệ với Candidate nếu có
-        OPTIONAL MATCH (c:Candidate {candidate_id: $candidate_id})
+        OPTIONAL MATCH (c:Candidate {{candidate_id: $candidate_id}})
         WITH c
         WHERE c IS NOT NULL
-        MATCH (a:Achievement {achievement_id: $achievement_id})
-        MERGE (c)-[:EARNS_ACHIEVEMENT]->(a)
+        MATCH (a:Achievement {{achievement_id: $achievement_id}})
+        MERGE (c)-[:{ACHIEVES_REL}]->(a)
         
         // Tạo quan hệ với Exam nếu có
         WITH a
-        OPTIONAL MATCH (e:Exam {exam_id: $exam_id})
+        OPTIONAL MATCH (e:Exam {{exam_id: $exam_id}})
         WITH a, e
         WHERE e IS NOT NULL
-        MERGE (a)-[:ACHIEVED_IN]->(e)
+        MERGE (a)-[:{ACHIEVEMENT_FOR_EXAM_REL}]->(e)
+        """
+    
+    @staticmethod
+    def create_instance_of_relationship_query():
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node Achievement
+        và node class Achievement trong ontology.
+        """
+        return f"""
+        MATCH (instance:Achievement:OntologyInstance {{achievement_id: $achievement_id}})
+        MATCH (class:Achievement:OntologyClass {{id: 'achievement-class'}})
+        MERGE (instance)-[r:{INSTANCE_OF_REL}]->(class)
+        RETURN r
         """
     
     def to_dict(self):

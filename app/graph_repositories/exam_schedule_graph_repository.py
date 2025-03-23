@@ -1,308 +1,342 @@
 """
 Exam Schedule Graph Repository.
 
-This module defines the ExamScheduleGraphRepository class for managing ExamSchedule nodes in Neo4j.
+This module contains the ExamScheduleGraphRepository class for managing
+ExamSchedule nodes in the Neo4j knowledge graph.
 """
 
 import logging
-from typing import Dict, List, Optional, Union
-
-from neo4j import Driver
+from typing import List, Dict, Any, Optional
 from neo4j.exceptions import Neo4jError
 
-from app.domain.graph_models.exam_schedule_node import ExamScheduleNode
+from app.domain.graph_models.exam_schedule_node import (
+    ExamScheduleNode, INSTANCE_OF_REL, FOLLOWS_SCHEDULE_REL, 
+    HAS_EXAM_SCHEDULE_REL, ASSIGNED_TO_REL, SCHEDULES_SUBJECT_REL, SCHEDULE_AT_REL
+)
+from app.infrastructure.ontology.ontology import RELATIONSHIPS
 
-logger = logging.getLogger(__name__)
 
 class ExamScheduleGraphRepository:
     """
-    Repository for ExamSchedule nodes in Neo4j Knowledge Graph.
+    Repository for managing ExamSchedule nodes in the Neo4j knowledge graph.
     
-    Cung cấp các phương thức để tương tác với các node ExamSchedule trong Neo4j.
+    This repository provides methods for creating, retrieving, updating, and deleting
+    ExamSchedule nodes, as well as managing relationships with other nodes.
     """
+
+    def __init__(self, neo4j_service):
+        """
+        Initialize the repository with a Neo4j connection.
+        
+        Args:
+            neo4j_service: Service for connecting to Neo4j
+        """
+        self.neo4j = neo4j_service
+        self.logger = logging.getLogger(__name__)
     
-    def __init__(self, driver: Driver):
+    def create_or_update(self, schedule: ExamScheduleNode) -> Dict[str, Any]:
         """
-        Khởi tạo repository với neo4j driver.
+        Create or update an ExamSchedule node in the graph.
         
         Args:
-            driver: Neo4j driver instance
-        """
-        self.driver = driver
-        
-    def create_or_update(self, schedule: Union[Dict, ExamScheduleNode]) -> Optional[ExamScheduleNode]:
-        """
-        Tạo mới hoặc cập nhật node ExamSchedule.
-        
-        Args:
-            schedule: ExamScheduleNode hoặc dictionary chứa thông tin lịch thi
+            schedule: ExamScheduleNode object with schedule data
             
         Returns:
-            ExamScheduleNode đã được tạo hoặc cập nhật, hoặc None nếu lỗi
+            Dictionary representing the created or updated node
         """
-        if isinstance(schedule, dict):
-            schedule = ExamScheduleNode(
-                schedule_id=schedule.get("schedule_id"),
-                schedule_name=schedule.get("schedule_name", f"Schedule {schedule.get('schedule_id')}"),
-                exam_id=schedule.get("exam_id"),
-                room_id=schedule.get("room_id"),
-                start_time=schedule.get("start_time"),
-                end_time=schedule.get("end_time"),
-                date=schedule.get("date"),
-                status=schedule.get("status"),
-                max_participants=schedule.get("max_participants"),
-                additional_info=schedule.get("additional_info")
-            )
-        
         try:
-            with self.driver.session() as session:
-                # Tạo hoặc cập nhật node
-                result = session.execute_write(
-                    lambda tx: tx.run(
-                        ExamScheduleNode.create_query(),
-                        **schedule.to_dict()
-                    ).single()
-                )
-                
-                # Tạo các mối quan hệ
-                session.execute_write(
-                    lambda tx: tx.run(
-                        schedule.create_relationships_query(),
-                        **schedule.to_dict()
-                    )
-                )
-                
-                return ExamScheduleNode.from_record(result)
+            # Create or update the ExamSchedule node
+            result = self.neo4j.run_query(
+                schedule.create_query(), 
+                schedule.to_dict()
+            )
+            
+            # Create relationships
+            relationships_query = schedule.create_relationships_query()
+            if relationships_query:
+                self.neo4j.run_query(relationships_query, schedule.to_dict())
+            
+            # Create INSTANCE_OF relationship if the method exists
+            if hasattr(schedule, 'create_instance_of_relationship_query'):
+                instance_query = schedule.create_instance_of_relationship_query()
+                if instance_query:
+                    self.neo4j.run_query(instance_query, schedule.to_dict())
+            
+            if result:
+                record = result[0]
+                self.logger.info(f"ExamSchedule node created/updated: {schedule.schedule_id}")
+                return ExamScheduleNode.from_record(record).to_dict()
+            else:
+                self.logger.error(f"Failed to create/update ExamSchedule node: {schedule.schedule_id}")
+                return None
         except Neo4jError as e:
-            logger.error(f"Error creating/updating ExamSchedule node: {e}")
-            return None
+            self.logger.error(f"Neo4j error creating/updating ExamSchedule: {str(e)}")
+            raise
         except Exception as e:
-            logger.error(f"Unexpected error in create_or_update: {e}")
-            return None
+            self.logger.error(f"Error creating/updating ExamSchedule: {str(e)}")
+            raise
     
     def get_by_id(self, schedule_id: str) -> Optional[ExamScheduleNode]:
         """
-        Lấy ExamSchedule theo ID.
+        Retrieve an ExamSchedule node by its ID.
         
         Args:
-            schedule_id: ID của lịch thi cần tìm
+            schedule_id: The ID of the schedule to retrieve
             
         Returns:
-            ExamScheduleNode nếu tìm thấy, hoặc None nếu không
+            ExamScheduleNode if found, None otherwise
         """
         query = """
         MATCH (s:ExamSchedule {schedule_id: $schedule_id})
         RETURN s
         """
+        params = {"schedule_id": schedule_id}
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, schedule_id=schedule_id).single()
-                )
-                return ExamScheduleNode.from_record(result) if result else None
-        except Neo4jError as e:
-            logger.error(f"Error retrieving ExamSchedule by ID: {e}")
-            return None
+            result = self.neo4j.run_query(query, params)
+            if result and len(result) > 0:
+                return ExamScheduleNode.from_record(result[0])
+            else:
+                return None
         except Exception as e:
-            logger.error(f"Unexpected error in get_by_id: {e}")
-            return None
+            self.logger.error(f"Error retrieving ExamSchedule by ID: {str(e)}")
+            raise
+    
+    def get_by_exam(self, exam_id: str) -> List[ExamScheduleNode]:
+        """
+        Retrieve all schedules for a specific exam.
+        
+        Args:
+            exam_id: The ID of the exam
+            
+        Returns:
+            List of ExamScheduleNode objects for the exam
+        """
+        query = f"""
+        MATCH (e:Exam {{exam_id: $exam_id}})-[:{FOLLOWS_SCHEDULE_REL}]->(s:ExamSchedule)
+        RETURN s
+        """
+        params = {"exam_id": exam_id}
+        
+        try:
+            result = self.neo4j.run_query(query, params)
+            return [ExamScheduleNode.from_record(record) for record in result]
+        except Exception as e:
+            self.logger.error(f"Error retrieving schedules by exam: {str(e)}")
+            raise
+    
+    def get_by_location(self, location_id: str) -> List[ExamScheduleNode]:
+        """
+        Retrieve all schedules for a specific location.
+        
+        Args:
+            location_id: The ID of the exam location
+            
+        Returns:
+            List of ExamScheduleNode objects for the location
+        """
+        query = f"""
+        MATCH (s:ExamSchedule)-[:{SCHEDULE_AT_REL}]->(l:ExamLocation {{location_id: $location_id}})
+        RETURN s
+        """
+        params = {"location_id": location_id}
+        
+        try:
+            result = self.neo4j.run_query(query, params)
+            return [ExamScheduleNode.from_record(record) for record in result]
+        except Exception as e:
+            self.logger.error(f"Error retrieving schedules by location: {str(e)}")
+            raise
+    
+    def get_by_room(self, room_id: str) -> List[ExamScheduleNode]:
+        """
+        Retrieve all schedules for a specific room.
+        
+        Args:
+            room_id: The ID of the exam room
+            
+        Returns:
+            List of ExamScheduleNode objects for the room
+        """
+        query = f"""
+        MATCH (s:ExamSchedule)-[:{ASSIGNED_TO_REL}]->(r:ExamRoom {{room_id: $room_id}})
+        RETURN s
+        """
+        params = {"room_id": room_id}
+        
+        try:
+            result = self.neo4j.run_query(query, params)
+            return [ExamScheduleNode.from_record(record) for record in result]
+        except Exception as e:
+            self.logger.error(f"Error retrieving schedules by room: {str(e)}")
+            raise
+    
+    def get_by_subject(self, subject_id: str) -> List[ExamScheduleNode]:
+        """
+        Retrieve all schedules for a specific subject.
+        
+        Args:
+            subject_id: The ID of the subject
+            
+        Returns:
+            List of ExamScheduleNode objects for the subject
+        """
+        query = f"""
+        MATCH (s:ExamSchedule)-[:{SCHEDULES_SUBJECT_REL}]->(es:ExamSubject)
+        WHERE es.subject_id = $subject_id
+        RETURN s
+        """
+        params = {"subject_id": subject_id}
+        
+        try:
+            result = self.neo4j.run_query(query, params)
+            return [ExamScheduleNode.from_record(record) for record in result]
+        except Exception as e:
+            self.logger.error(f"Error retrieving schedules by subject: {str(e)}")
+            raise
+    
+    def get_all_schedules(self) -> List[ExamScheduleNode]:
+        """
+        Retrieve all ExamSchedule nodes.
+        
+        Returns:
+            List of all ExamScheduleNode objects
+        """
+        query = """
+        MATCH (s:ExamSchedule)
+        RETURN s
+        """
+        
+        try:
+            result = self.neo4j.run_query(query)
+            return [ExamScheduleNode.from_record(record) for record in result]
+        except Exception as e:
+            self.logger.error(f"Error retrieving all schedules: {str(e)}")
+            raise
     
     def delete(self, schedule_id: str) -> bool:
         """
-        Xóa node ExamSchedule.
+        Delete an ExamSchedule node from the graph.
         
         Args:
-            schedule_id: ID của lịch thi cần xóa
+            schedule_id: The ID of the schedule to delete
             
         Returns:
-            True nếu xóa thành công, False nếu lỗi
+            True if successful, False otherwise
         """
         query = """
         MATCH (s:ExamSchedule {schedule_id: $schedule_id})
         DETACH DELETE s
-        RETURN count(s) as deleted_count
         """
+        params = {"schedule_id": schedule_id}
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_write(
-                    lambda tx: tx.run(query, schedule_id=schedule_id).single()
-                )
-                return result and result["deleted_count"] > 0
-        except Neo4jError as e:
-            logger.error(f"Error deleting ExamSchedule: {e}")
-            return False
+            self.neo4j.run_query(query, params)
+            self.logger.info(f"ExamSchedule node deleted: {schedule_id}")
+            return True
         except Exception as e:
-            logger.error(f"Unexpected error in delete: {e}")
+            self.logger.error(f"Error deleting ExamSchedule: {str(e)}")
             return False
     
-    def get_by_exam(self, exam_id: str) -> List[ExamScheduleNode]:
+    def add_participant(self, schedule_id: str, candidate_id: str, participant_data: Dict[str, Any] = None) -> bool:
         """
-        Lấy tất cả các lịch thi cho một kỳ thi.
+        Create a relationship between a Candidate and an ExamSchedule.
         
         Args:
-            exam_id: ID của kỳ thi
+            schedule_id: The ID of the ExamSchedule
+            candidate_id: The ID of the Candidate
+            participant_data: Additional properties for the relationship
             
         Returns:
-            Danh sách các ExamScheduleNode cho kỳ thi
+            True if successful, False otherwise
         """
-        query = """
-        MATCH (s:ExamSchedule)-[:SCHEDULES]->(e:Exam {exam_id: $exam_id})
-        RETURN s
+        if participant_data is None:
+            participant_data = {}
+        
+        # Merge the default properties with any provided data
+        params = {
+            "schedule_id": schedule_id,
+            "candidate_id": candidate_id,
+            "registration_date": participant_data.get("registration_date", None),
+            "status": participant_data.get("status", "Registered"),
+            "score": participant_data.get("score", None),
+            "is_present": participant_data.get("is_present", None),
+            "notes": participant_data.get("notes", ""),
+            "seat_number": participant_data.get("seat_number", ""),
+        }
+        
+        query = f"""
+        MATCH (c:Candidate {{candidate_id: $candidate_id}})
+        MATCH (s:ExamSchedule {{schedule_id: $schedule_id}})
+        MERGE (c)-[r:{HAS_EXAM_SCHEDULE_REL}]->(s)
+        ON CREATE SET
+            r.registration_date = $registration_date,
+            r.status = $status,
+            r.score = $score,
+            r.is_present = $is_present,
+            r.notes = $notes,
+            r.seat_number = $seat_number,
+            r.created_at = datetime()
+        ON MATCH SET
+            r.registration_date = $registration_date,
+            r.status = $status,
+            r.score = $score,
+            r.is_present = $is_present,
+            r.notes = $notes,
+            r.seat_number = $seat_number,
+            r.updated_at = datetime()
+        RETURN r
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, exam_id=exam_id).data()
-                )
-                return [ExamScheduleNode.from_record(record) for record in result]
-        except Neo4jError as e:
-            logger.error(f"Error retrieving schedules by exam: {e}")
-            return []
+            result = self.neo4j.run_query(query, params)
+            if result:
+                self.logger.info(f"Candidate {candidate_id} added to schedule {schedule_id}")
+                return True
+            else:
+                self.logger.error(f"Failed to add candidate {candidate_id} to schedule {schedule_id}")
+                return False
         except Exception as e:
-            logger.error(f"Unexpected error in get_by_exam: {e}")
-            return []
-    
-    def get_by_room(self, room_id: str) -> List[ExamScheduleNode]:
-        """
-        Lấy tất cả các lịch thi tại một phòng thi.
-        
-        Args:
-            room_id: ID của phòng thi
-            
-        Returns:
-            Danh sách các ExamScheduleNode tại phòng thi
-        """
-        query = """
-        MATCH (s:ExamSchedule)-[:ASSIGNED_TO]->(r:ExamRoom {room_id: $room_id})
-        RETURN s
-        """
-        
-        try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, room_id=room_id).data()
-                )
-                return [ExamScheduleNode.from_record(record) for record in result]
-        except Neo4jError as e:
-            logger.error(f"Error retrieving schedules by room: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"Unexpected error in get_by_room: {e}")
-            return []
-    
-    def get_by_date_range(self, start_date, end_date) -> List[ExamScheduleNode]:
-        """
-        Lấy tất cả các lịch thi trong một khoảng thời gian.
-        
-        Args:
-            start_date: Ngày bắt đầu
-            end_date: Ngày kết thúc
-            
-        Returns:
-            Danh sách các ExamScheduleNode trong khoảng thời gian
-        """
-        query = """
-        MATCH (s:ExamSchedule)
-        WHERE s.date >= $start_date AND s.date <= $end_date
-        RETURN s
-        """
-        
-        try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, start_date=start_date, end_date=end_date).data()
-                )
-                return [ExamScheduleNode.from_record(record) for record in result]
-        except Neo4jError as e:
-            logger.error(f"Error retrieving schedules by date range: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"Unexpected error in get_by_date_range: {e}")
-            return []
-    
-    def get_all_schedules(self) -> List[ExamScheduleNode]:
-        """
-        Lấy tất cả các lịch thi.
-        
-        Returns:
-            Danh sách tất cả các ExamScheduleNode
-        """
-        query = """
-        MATCH (s:ExamSchedule)
-        RETURN s
-        """
-        
-        try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query).data()
-                )
-                return [ExamScheduleNode.from_record(record) for record in result]
-        except Neo4jError as e:
-            logger.error(f"Error retrieving all schedules: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"Unexpected error in get_all_schedules: {e}")
-            return []
-    
-    def add_participant(self, schedule_id: str, candidate_id: str) -> bool:
-        """
-        Thêm thí sinh vào lịch thi.
-        
-        Args:
-            schedule_id: ID của lịch thi
-            candidate_id: ID của thí sinh
-            
-        Returns:
-            True nếu thành công, False nếu lỗi
-        """
-        query = """
-        MATCH (s:ExamSchedule {schedule_id: $schedule_id})
-        MATCH (c:Candidate {candidate_id: $candidate_id})
-        MERGE (c)-[:PARTICIPATES_IN]->(s)
-        RETURN s, c
-        """
-        
-        try:
-            with self.driver.session() as session:
-                result = session.execute_write(
-                    lambda tx: tx.run(query, schedule_id=schedule_id, candidate_id=candidate_id).data()
-                )
-                return len(result) > 0
-        except Neo4jError as e:
-            logger.error(f"Error adding participant: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"Unexpected error in add_participant: {e}")
+            self.logger.error(f"Error adding participant: {str(e)}")
             return False
     
-    def get_participants(self, schedule_id: str) -> List[Dict]:
+    def get_participants(self, schedule_id: str) -> List[Dict[str, Any]]:
         """
-        Lấy danh sách thí sinh tham gia lịch thi.
+        Retrieve all candidates registered for a schedule.
         
         Args:
-            schedule_id: ID của lịch thi
+            schedule_id: The ID of the ExamSchedule
             
         Returns:
-            Danh sách các thông tin thí sinh
+            List of Candidates and their relationship data
         """
-        query = """
-        MATCH (c:Candidate)-[:PARTICIPATES_IN]->(s:ExamSchedule {schedule_id: $schedule_id})
-        RETURN c
+        query = f"""
+        MATCH (c:Candidate)-[r:{HAS_EXAM_SCHEDULE_REL}]->(s:ExamSchedule {{schedule_id: $schedule_id}})
+        RETURN c, r
         """
+        params = {"schedule_id": schedule_id}
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, schedule_id=schedule_id).data()
-                )
-                return [record["c"] for record in result]
-        except Neo4jError as e:
-            logger.error(f"Error retrieving participants: {e}")
-            return []
+            result = self.neo4j.run_query(query, params)
+            participants = []
+            for record in result:
+                candidate = record['c']
+                relationship = record['r']
+                
+                participant_data = {
+                    "candidate_id": candidate["candidate_id"],
+                    "name": candidate.get("name", ""),
+                    "email": candidate.get("email", ""),
+                    "registration_date": relationship.get("registration_date"),
+                    "status": relationship.get("status"),
+                    "score": relationship.get("score"),
+                    "is_present": relationship.get("is_present"),
+                    "notes": relationship.get("notes"),
+                    "seat_number": relationship.get("seat_number")
+                }
+                participants.append(participant_data)
+            
+            return participants
         except Exception as e:
-            logger.error(f"Unexpected error in get_participants: {e}")
+            self.logger.error(f"Error retrieving participants: {str(e)}")
             return [] 

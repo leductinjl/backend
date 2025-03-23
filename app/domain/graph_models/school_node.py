@@ -4,6 +4,14 @@ School Node model.
 This module defines the SchoolNode class for representing School entities in the Neo4j graph.
 """
 
+from app.infrastructure.ontology.ontology import RELATIONSHIPS, CLASSES
+
+# Import specific relationships
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+OFFERS_MAJOR_REL = RELATIONSHIPS["OFFERS_MAJOR"]["type"]
+STUDIES_AT_REL = RELATIONSHIPS["STUDIES_AT"]["type"]
+ISSUED_BY_REL = RELATIONSHIPS["ISSUED_BY"]["type"]
+
 class SchoolNode:
     """
     Model for School node in Neo4j Knowledge Graph.
@@ -33,6 +41,7 @@ class SchoolNode:
         return """
         MERGE (s:School:OntologyInstance {school_id: $school_id})
         ON CREATE SET
+            s:Thing,
             s.school_name = $school_name,
             s.name = $name,
             s.address = $address,
@@ -45,6 +54,19 @@ class SchoolNode:
             s.type = $type,
             s.updated_at = datetime()
         RETURN s
+        """
+    
+    def create_instance_of_relationship_query(self):
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node School và class definition.
+        
+        Returns:
+            Query tạo quan hệ INSTANCE_OF
+        """
+        return f"""
+        MATCH (s:School:OntologyInstance {{school_id: $school_id}})
+        MATCH (class:OntologyClass {{id: 'school-class'}})
+        MERGE (s)-[:{INSTANCE_OF_REL}]->(class)
         """
     
     def to_dict(self):

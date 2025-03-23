@@ -7,6 +7,11 @@ This module provides methods for interacting with Achievement nodes in Neo4j.
 from app.domain.graph_models.achievement_node import AchievementNode
 from app.infrastructure.ontology.ontology import RELATIONSHIPS
 
+# Import specific relationships
+ACHIEVES_REL = RELATIONSHIPS["ACHIEVES"]["type"]
+ACHIEVEMENT_FOR_EXAM_REL = RELATIONSHIPS["ACHIEVEMENT_FOR_EXAM"]["type"]
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+
 class AchievementGraphRepository:
     """
     Repository for managing Achievement nodes in Neo4j knowledge graph.
@@ -39,6 +44,9 @@ class AchievementGraphRepository:
             
             # Create relationships if possible
             if result and len(result) > 0:
+                # Create INSTANCE_OF relationship with Achievement class
+                await self._create_instance_of_relationship(params.get('achievement_id'))
+                
                 if hasattr(achievement, 'create_relationships_query'):
                     rel_query = achievement.create_relationships_query()
                     await self.neo4j.execute_query(rel_query, params)
@@ -47,6 +55,21 @@ class AchievementGraphRepository:
         except Exception as e:
             print(f"Error creating/updating achievement in Neo4j: {e}")
             return False
+    
+    async def _create_instance_of_relationship(self, achievement_id):
+        """
+        Tạo mối quan hệ INSTANCE_OF giữa node instance và class node tương ứng.
+        
+        Args:
+            achievement_id: ID của node instance
+        """
+        try:
+            query = AchievementNode.create_instance_of_relationship_query()
+            await self.neo4j.execute_query(query, {"achievement_id": achievement_id})
+            print(f"Created INSTANCE_OF relationship for achievement {achievement_id}")
+        except Exception as e:
+            print(f"Error creating INSTANCE_OF relationship for achievement {achievement_id}: {e}")
+            raise
     
     async def get_by_id(self, achievement_id):
         """
@@ -102,8 +125,8 @@ class AchievementGraphRepository:
         Returns:
             List of achievements
         """
-        query = """
-        MATCH (c:Candidate {candidate_id: $candidate_id})-[:EARNS_ACHIEVEMENT]->(a:Achievement)
+        query = f"""
+        MATCH (c:Candidate {{candidate_id: $candidate_id}})-[:{ACHIEVES_REL}]->(a:Achievement)
         RETURN a
         """
         params = {"candidate_id": candidate_id}
@@ -131,8 +154,8 @@ class AchievementGraphRepository:
         Returns:
             List of achievements
         """
-        query = """
-        MATCH (a:Achievement)-[:ACHIEVED_IN]->(e:Exam {exam_id: $exam_id})
+        query = f"""
+        MATCH (a:Achievement)-[:{ACHIEVEMENT_FOR_EXAM_REL}]->(e:Exam {{exam_id: $exam_id}})
         RETURN a
         """
         params = {"exam_id": exam_id}

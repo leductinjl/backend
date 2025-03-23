@@ -4,6 +4,13 @@ Award Node model.
 This module defines the AwardNode class for representing Award entities in the Neo4j graph.
 """
 
+from app.infrastructure.ontology.ontology import RELATIONSHIPS, CLASSES
+
+# Import specific relationships
+EARNS_AWARD_REL = RELATIONSHIPS["EARNS_AWARD"]["type"]
+AWARD_FOR_EXAM_REL = RELATIONSHIPS["AWARD_FOR_EXAM"]["type"]
+INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+
 class AwardNode:
     """
     Model for Award node in Neo4j Knowledge Graph.
@@ -75,20 +82,33 @@ class AwardNode:
         Returns:
             Query tạo quan hệ với các node khác
         """
-        return """
+        return f"""
         // Tạo quan hệ với Candidate nếu có
-        OPTIONAL MATCH (c:Candidate {candidate_id: $candidate_id})
+        OPTIONAL MATCH (c:Candidate {{candidate_id: $candidate_id}})
         WITH c
         WHERE c IS NOT NULL
-        MATCH (a:Award {award_id: $award_id})
-        MERGE (c)-[:RECEIVES_AWARD]->(a)
+        MATCH (a:Award {{award_id: $award_id}})
+        MERGE (c)-[:{EARNS_AWARD_REL}]->(a)
         
         // Tạo quan hệ với Exam nếu có
         WITH a
-        OPTIONAL MATCH (e:Exam {exam_id: $exam_id})
+        OPTIONAL MATCH (e:Exam {{exam_id: $exam_id}})
         WITH a, e
         WHERE e IS NOT NULL
-        MERGE (a)-[:AWARDED_IN]->(e)
+        MERGE (a)-[:{AWARD_FOR_EXAM_REL}]->(e)
+        """
+    
+    @staticmethod
+    def create_instance_of_relationship_query():
+        """
+        Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node Award
+        và node class Award trong ontology.
+        """
+        return f"""
+        MATCH (instance:Award:OntologyInstance {{award_id: $award_id}})
+        MATCH (class:Award:OntologyClass {{id: 'award-class'}})
+        MERGE (instance)-[r:{INSTANCE_OF_REL}]->(class)
+        RETURN r
         """
     
     def to_dict(self):
