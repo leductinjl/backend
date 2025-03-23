@@ -40,7 +40,6 @@ class SubjectNode:
         return """
         MERGE (s:Subject:OntologyInstance {subject_id: $subject_id})
         ON CREATE SET
-            s:Thing,
             s.subject_name = $subject_name,
             s.name = $name,
             s.description = $description,

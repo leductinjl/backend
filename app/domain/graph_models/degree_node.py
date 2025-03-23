@@ -8,7 +8,7 @@ from app.infrastructure.ontology.ontology import RELATIONSHIPS, CLASSES
 
 # Import specific relationships
 HOLDS_DEGREE_REL = RELATIONSHIPS["HOLDS_DEGREE"]["type"]
-IN_MAJOR_REL = RELATIONSHIPS["IN_MAJOR"]["type"]
+IN_MAJOR_REL = RELATIONSHIPS["RELATED_TO"]["type"]
 ISSUED_BY_REL = RELATIONSHIPS["ISSUED_BY"]["type"]
 INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
 

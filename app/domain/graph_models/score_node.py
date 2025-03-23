@@ -36,10 +36,21 @@ class ScoreNode:
         registration_status=None,
         registration_date=None,
         is_required=None,
-        exam_date=None
+        exam_date=None,
+        name=None
     ):
         # Thuộc tính định danh - bắt buộc
         self.score_id = score_id
+        
+        # Tên hiển thị cho node
+        self.name = name
+        if not self.name:
+            if score_value is not None and subject_name:
+                self.name = f"{subject_name}: {score_value}"
+            elif score_value is not None and exam_name:
+                self.name = f"{exam_name}: {score_value}"
+            else:
+                self.name = f"Score {score_id}"
         
         # Thuộc tính quan hệ - tùy chọn
         self.candidate_id = candidate_id
@@ -72,7 +83,7 @@ class ScoreNode:
         return """
         MERGE (s:Score:OntologyInstance {score_id: $score_id})
         ON CREATE SET
-            s:Thing, 
+            s.name = $name,
             s.score_value = $score_value,
             s.status = $status,
             s.graded_by = $graded_by,
@@ -80,6 +91,7 @@ class ScoreNode:
             s.score_history = $score_history,
             s.created_at = datetime()
         ON MATCH SET
+            s.name = $name,
             s.score_value = $score_value,
             s.status = $status,
             s.graded_by = $graded_by,
@@ -116,14 +128,14 @@ class ScoreNode:
         WITH s, c
         WHERE c IS NOT NULL
         MERGE (c)-[r:{RECEIVES_SCORE_REL} {{
-            exam_id: $exam_id,
-            exam_name: $exam_name,
-            subject_id: $subject_id,
-            subject_name: $subject_name,
-            registration_status: $registration_status,
-            registration_date: $registration_date,
-            is_required: $is_required,
-            exam_date: $exam_date
+            exam_id: CASE WHEN $exam_id IS NULL THEN '' ELSE $exam_id END,
+            exam_name: CASE WHEN $exam_name IS NULL THEN '' ELSE $exam_name END,
+            subject_id: CASE WHEN $subject_id IS NULL THEN '' ELSE $subject_id END,
+            subject_name: CASE WHEN $subject_name IS NULL THEN '' ELSE $subject_name END,
+            registration_status: CASE WHEN $registration_status IS NULL THEN 'REGISTERED' ELSE $registration_status END,
+            registration_date: CASE WHEN $registration_date IS NULL THEN '' ELSE $registration_date END,
+            is_required: CASE WHEN $is_required IS NULL THEN false ELSE $is_required END,
+            exam_date: CASE WHEN $exam_date IS NULL THEN '' ELSE $exam_date END
         }}]->(s)
         
         // Thiết lập quan hệ với Subject
@@ -145,12 +157,16 @@ class ScoreNode:
         """
         Chuyển đổi thành dictionary để sử dụng trong Neo4j query.
         """
+        # Convert decimal.Decimal to float for Neo4j compatibility
+        score_value = float(self.score_value) if self.score_value is not None else None
+        
         return {
             "score_id": self.score_id,
+            "name": self.name,
             "candidate_id": self.candidate_id,
             "subject_id": self.subject_id,
             "exam_id": self.exam_id,
-            "score_value": self.score_value,
+            "score_value": score_value,
             "status": self.status,
             "graded_by": self.graded_by,
             "graded_at": self.graded_at,
@@ -278,14 +294,16 @@ class ScoreNode:
             ScoreNode instance
         """
         node = record['s']  # 's' là alias cho score trong cypher query
-        return ScoreNode(
+        score_node = ScoreNode(
             score_id=node['score_id'],
             score_value=node.get('score_value'),
             status=node.get('status'),
             graded_by=node.get('graded_by'),
             graded_at=node.get('graded_at'),
-            score_history=node.get('score_history')
+            score_history=node.get('score_history'),
+            name=node.get('name', f"Score {node['score_id']}")
         )
+        return score_node
     
     def __repr__(self):
         return f"<ScoreNode(score_id='{self.score_id}', score_value='{self.score_value}')>" 

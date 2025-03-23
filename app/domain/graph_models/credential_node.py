@@ -108,7 +108,8 @@ class CredentialNode:
         MERGE (ca)-[:{PROVIDES_CREDENTIAL_REL}]->(c)
         """
     
-    def create_instance_of_relationship_query(self):
+    @staticmethod
+    def create_instance_of_relationship_query():
         """
         Tạo Cypher query để thiết lập mối quan hệ INSTANCE_OF giữa node Credential và class definition.
         

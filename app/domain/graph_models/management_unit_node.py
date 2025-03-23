@@ -59,7 +59,6 @@ class ManagementUnitNode:
         return """
         MERGE (m:ManagementUnit:OntologyInstance {unit_id: $unit_id})
         ON CREATE SET
-            m:Thing,
             m.unit_name = $unit_name,
             m.name = $name,
             m.unit_code = $unit_code,
@@ -97,7 +96,7 @@ class ManagementUnitNode:
         """
         return f"""
         MATCH (m:ManagementUnit:OntologyInstance {{unit_id: $unit_id}})
-        MATCH (class:OntologyClass {{id: 'management-unit-class'}})
+        MATCH (class:OntologyClass {{id: 'managementunit-class'}})
         MERGE (m)-[:{INSTANCE_OF_REL}]->(class)
         """
     

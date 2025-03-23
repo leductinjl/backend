@@ -146,76 +146,162 @@ class MainSyncService:
         # First sync base entities
         logger.info("Synchronizing subjects")
         subject_result = await self.subject_sync_service.sync_all(limit=limit)
-        results["subject"] = {"success": subject_result[0], "failed": subject_result[1]}
+        if isinstance(subject_result, tuple) and len(subject_result) >= 2:
+            results["subject"] = {"success": subject_result[0], "failed": subject_result[1]}
+        elif isinstance(subject_result, dict):
+            results["subject"] = subject_result
+        else:
+            results["subject"] = {"success": 0, "failed": 0}
         
         logger.info("Synchronizing schools")
         school_result = await self.school_sync_service.sync_all(limit=limit)
-        results["school"] = {"success": school_result[0], "failed": school_result[1]}
+        if isinstance(school_result, tuple) and len(school_result) >= 2:
+            results["school"] = {"success": school_result[0], "failed": school_result[1]}
+        elif isinstance(school_result, dict):
+            results["school"] = school_result
+        else:
+            results["school"] = {"success": 0, "failed": 0}
         
         logger.info("Synchronizing majors")
         major_result = await self.major_sync_service.sync_all(limit=limit)
-        results["major"] = {"success": major_result[0], "failed": major_result[1]}
+        if isinstance(major_result, tuple) and len(major_result) >= 2:
+            results["major"] = {"success": major_result[0], "failed": major_result[1]}
+        elif isinstance(major_result, dict):
+            results["major"] = major_result
+        else:
+            results["major"] = {"success": 0, "failed": 0}
         
         logger.info("Synchronizing management units")
         management_unit_result = await self.management_unit_sync_service.sync_all(limit=limit)
-        results["management_unit"] = {"success": management_unit_result[0], "failed": management_unit_result[1]}
+        if isinstance(management_unit_result, tuple) and len(management_unit_result) >= 2:
+            results["management_unit"] = {"success": management_unit_result[0], "failed": management_unit_result[1]}
+        elif isinstance(management_unit_result, dict):
+            results["management_unit"] = management_unit_result
+        else:
+            results["management_unit"] = {"success": 0, "failed": 0}
         
         logger.info("Synchronizing exam locations")
         exam_location_result = await self.exam_location_sync_service.sync_all(limit=limit)
-        results["exam_location"] = {"success": exam_location_result[0], "failed": exam_location_result[1]}
+        if isinstance(exam_location_result, tuple) and len(exam_location_result) >= 2:
+            results["exam_location"] = {"success": exam_location_result[0], "failed": exam_location_result[1]}
+        elif isinstance(exam_location_result, dict):
+            results["exam_location"] = exam_location_result
+        else:
+            results["exam_location"] = {"success": 0, "failed": 0}
         
         logger.info("Synchronizing exam rooms")
         exam_room_result = await self.exam_room_sync_service.sync_all(limit=limit)
-        results["exam_room"] = {"success": exam_room_result[0], "failed": exam_room_result[1]}
+        if isinstance(exam_room_result, tuple) and len(exam_room_result) >= 2:
+            results["exam_room"] = {"success": exam_room_result[0], "failed": exam_room_result[1]}
+        elif isinstance(exam_room_result, dict):
+            results["exam_room"] = exam_room_result
+        else:
+            results["exam_room"] = {"success": 0, "failed": 0}
         
         logger.info("Synchronizing exams")
         exam_result = await self.exam_sync_service.sync_all(limit=limit)
-        results["exam"] = {"success": exam_result[0], "failed": exam_result[1]}
+        if isinstance(exam_result, tuple) and len(exam_result) >= 2:
+            results["exam"] = {"success": exam_result[0], "failed": exam_result[1]}
+        elif isinstance(exam_result, dict):
+            results["exam"] = exam_result
+        else:
+            results["exam"] = {"success": 0, "failed": 0}
         
         logger.info("Synchronizing candidates")
         candidate_result = await self.candidate_sync_service.sync_all(limit=limit)
-        results["candidate"] = {"success": candidate_result[0], "failed": candidate_result[1]}
+        if isinstance(candidate_result, tuple) and len(candidate_result) >= 2:
+            results["candidate"] = {"success": candidate_result[0], "failed": candidate_result[1]}
+        elif isinstance(candidate_result, dict):
+            results["candidate"] = candidate_result
+        else:
+            results["candidate"] = {"success": 0, "failed": 0}
         
         # Then sync entities that depend on base entities
         logger.info("Synchronizing exam schedules")
         exam_schedule_result = await self.exam_schedule_sync_service.sync_all(limit=limit)
-        results["exam_schedule"] = {"success": exam_schedule_result[0], "failed": exam_schedule_result[1]}
+        if isinstance(exam_schedule_result, tuple) and len(exam_schedule_result) >= 2:
+            results["exam_schedule"] = {"success": exam_schedule_result[0], "failed": exam_schedule_result[1]}
+        elif isinstance(exam_schedule_result, dict):
+            results["exam_schedule"] = exam_schedule_result
+        else:
+            results["exam_schedule"] = {"success": 0, "failed": 0}
         
         logger.info("Synchronizing scores")
         score_result = await self.score_sync_service.sync_all(limit=limit)
-        results["score"] = {"success": score_result[0], "failed": score_result[1]}
+        if isinstance(score_result, tuple) and len(score_result) >= 2:
+            results["score"] = {"success": score_result[0], "failed": score_result[1]}
+        elif isinstance(score_result, dict):
+            results["score"] = score_result
+        else:
+            results["score"] = {"success": 0, "failed": 0}
         
         logger.info("Synchronizing score reviews")
         score_review_result = await self.score_review_sync_service.sync_all(limit=limit)
-        results["score_review"] = {"success": score_review_result[0], "failed": score_review_result[1]}
+        if isinstance(score_review_result, tuple) and len(score_review_result) >= 2:
+            results["score_review"] = {"success": score_review_result[0], "failed": score_review_result[1]}
+        elif isinstance(score_review_result, dict):
+            results["score_review"] = score_review_result
+        else:
+            results["score_review"] = {"success": 0, "failed": 0}
         
         logger.info("Synchronizing achievements")
         achievement_result = await self.achievement_sync_service.sync_all(limit=limit)
-        results["achievement"] = {"success": achievement_result[0], "failed": achievement_result[1]}
+        if isinstance(achievement_result, tuple) and len(achievement_result) >= 2:
+            results["achievement"] = {"success": achievement_result[0], "failed": achievement_result[1]}
+        elif isinstance(achievement_result, dict):
+            results["achievement"] = achievement_result
+        else:
+            results["achievement"] = {"success": 0, "failed": 0}
         
         logger.info("Synchronizing awards")
         award_result = await self.award_sync_service.sync_all(limit=limit)
-        results["award"] = {"success": award_result[0], "failed": award_result[1]}
+        if isinstance(award_result, tuple) and len(award_result) >= 2:
+            results["award"] = {"success": award_result[0], "failed": award_result[1]}
+        elif isinstance(award_result, dict):
+            results["award"] = award_result
+        else:
+            results["award"] = {"success": 0, "failed": 0}
         
         logger.info("Synchronizing certificates")
         certificate_result = await self.certificate_sync_service.sync_all(limit=limit)
-        results["certificate"] = {"success": certificate_result[0], "failed": certificate_result[1]}
+        if isinstance(certificate_result, tuple) and len(certificate_result) >= 2:
+            results["certificate"] = {"success": certificate_result[0], "failed": certificate_result[1]}
+        elif isinstance(certificate_result, dict):
+            results["certificate"] = certificate_result
+        else:
+            results["certificate"] = {"success": 0, "failed": 0}
         
         logger.info("Synchronizing credentials")
         credential_result = await self.credential_sync_service.sync_all(limit=limit)
-        results["credential"] = {"success": credential_result[0], "failed": credential_result[1]}
+        if isinstance(credential_result, tuple) and len(credential_result) >= 2:
+            results["credential"] = {"success": credential_result[0], "failed": credential_result[1]}
+        elif isinstance(credential_result, dict):
+            results["credential"] = credential_result
+        else:
+            results["credential"] = {"success": 0, "failed": 0}
         
         logger.info("Synchronizing degrees")
         degree_result = await self.degree_sync_service.sync_all(limit=limit)
-        results["degree"] = {"success": degree_result[0], "failed": degree_result[1]}
+        if isinstance(degree_result, tuple) and len(degree_result) >= 2:
+            results["degree"] = {"success": degree_result[0], "failed": degree_result[1]}
+        elif isinstance(degree_result, dict):
+            results["degree"] = degree_result
+        else:
+            results["degree"] = {"success": 0, "failed": 0}
         
         logger.info("Synchronizing recognitions")
         recognition_result = await self.recognition_sync_service.sync_all(limit=limit)
-        results["recognition"] = {"success": recognition_result[0], "failed": recognition_result[1]}
+        if isinstance(recognition_result, tuple) and len(recognition_result) >= 2:
+            results["recognition"] = {"success": recognition_result[0], "failed": recognition_result[1]}
+        elif isinstance(recognition_result, dict):
+            results["recognition"] = recognition_result
+        else:
+            results["recognition"] = {"success": 0, "failed": 0}
         
         # Sync school-major relationships now that both schools and majors are synchronized
         logger.info("Synchronizing school-major relationships")
-        for school, _ in await self.school_sync_service.sql_repository.get_all(limit=limit):
+        school_results, _ = await self.school_sync_service.sql_repository.get_all(limit=limit)
+        for school in school_results:
             await self.school_sync_service.sync_school_majors(school.school_id)
         
         # Log summary

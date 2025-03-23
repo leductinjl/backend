@@ -57,7 +57,6 @@ class RecognitionNode:
         return """
         MERGE (r:Recognition:OntologyInstance {recognition_id: $recognition_id})
         ON CREATE SET
-            r:Thing,
             r.recognition_name = $recognition_name,
             r.name = $name,
             r.recognition_type = $recognition_type,

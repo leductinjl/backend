@@ -41,6 +41,9 @@ class ExamScheduleNode:
         # Thuộc tính định danh - bắt buộc
         self.schedule_id = schedule_id
         
+        # Tên hiển thị cho node
+        self.name = f"Schedule {schedule_id}"
+        
         # Thuộc tính quan hệ - tùy chọn
         self.exam_id = exam_id
         self.subject_id = subject_id
@@ -67,7 +70,7 @@ class ExamScheduleNode:
         return """
         MERGE (s:ExamSchedule:OntologyInstance {schedule_id: $schedule_id})
         ON CREATE SET
-            s:Thing, 
+            s.name = $name,
             s.exam_id = $exam_id,
             s.subject_id = $subject_id,
             s.exam_subject_id = $exam_subject_id,
@@ -81,6 +84,7 @@ class ExamScheduleNode:
             s.additional_info = $additional_info,
             s.created_at = datetime()
         ON MATCH SET
+            s.name = $name,
             s.exam_id = $exam_id,
             s.subject_id = $subject_id,
             s.exam_subject_id = $exam_subject_id,
@@ -113,6 +117,8 @@ class ExamScheduleNode:
         
         # Quan hệ với ExamSubject (nếu có)
         if self.exam_subject_id:
+            if query_parts:
+                query_parts.append("WITH s")
             query_parts.append(f"""
             // Thiết lập quan hệ với ExamSubject (nếu có)
             MATCH (s:ExamSchedule {{schedule_id: $schedule_id}})
@@ -122,6 +128,8 @@ class ExamScheduleNode:
         
         # Quan hệ với ExamRoom (nếu có)
         if self.room_id:
+            if query_parts:
+                query_parts.append("WITH s")
             query_parts.append(f"""
             // Thiết lập quan hệ với ExamRoom (nếu có)
             MATCH (s:ExamSchedule {{schedule_id: $schedule_id}})
@@ -131,6 +139,8 @@ class ExamScheduleNode:
         
         # Quan hệ với ExamLocation (nếu có)
         if self.location_id:
+            if query_parts:
+                query_parts.append("WITH s")
             query_parts.append(f"""
             // Thiết lập quan hệ với ExamLocation (nếu có)
             MATCH (s:ExamSchedule {{schedule_id: $schedule_id}})
@@ -149,7 +159,7 @@ class ExamScheduleNode:
         """
         return f"""
         MATCH (s:ExamSchedule:OntologyInstance {{schedule_id: $schedule_id}})
-        MATCH (class:OntologyClass {{id: 'exam-schedule-class'}})
+        MATCH (class:OntologyClass {{id: 'examschedule-class'}})
         MERGE (s)-[:{INSTANCE_OF_REL}]->(class)
         """
     
@@ -159,6 +169,7 @@ class ExamScheduleNode:
         """
         return {
             "schedule_id": self.schedule_id,
+            "name": self.name,
             "exam_id": self.exam_id,
             "subject_id": self.subject_id,
             "exam_subject_id": self.exam_subject_id,
@@ -197,8 +208,22 @@ class ExamScheduleNode:
         """
         if isinstance(schedule_model, dict):
             # Trường hợp schedule_model là dictionary
+            schedule_id = schedule_model.get('exam_schedule_id') or schedule_model.get('schedule_id')
+            
+            # Tạo tên có ý nghĩa nếu có thông tin
+            name = f"Schedule {schedule_id}"
+            exam_name = schedule_model.get('exam_name')
+            subject_name = schedule_model.get('subject_name')
+            start_time = schedule_model.get('start_time')
+            
+            if exam_name and subject_name and start_time:
+                formatted_time = start_time.strftime("%d/%m/%Y %H:%M") if hasattr(start_time, 'strftime') else start_time
+                name = f"{exam_name} - {subject_name} ({formatted_time})"
+            elif exam_name and subject_name:
+                name = f"{exam_name} - {subject_name}"
+            
             return cls(
-                schedule_id=schedule_model.get('exam_schedule_id') or schedule_model.get('schedule_id'),
+                schedule_id=schedule_id,
                 exam_id=schedule_model.get('exam_id'),
                 subject_id=schedule_model.get('subject_id'),
                 exam_subject_id=schedule_model.get('exam_subject_id'),
@@ -213,8 +238,24 @@ class ExamScheduleNode:
             )
         else:
             # Trường hợp schedule_model là SQLAlchemy model
-            return cls(
-                schedule_id=getattr(schedule_model, 'exam_schedule_id', None) or getattr(schedule_model, 'schedule_id', None),
+            schedule_id = getattr(schedule_model, 'exam_schedule_id', None) or getattr(schedule_model, 'schedule_id', None)
+            
+            # Tạo tên có ý nghĩa từ thông tin khác
+            name = f"Schedule {schedule_id}"
+            
+            # Lấy thông tin từ các quan hệ nếu có
+            exam_name = getattr(schedule_model, 'exam_name', None)
+            subject_name = getattr(schedule_model, 'subject_name', None)
+            start_time = getattr(schedule_model, 'start_time', None)
+            
+            if exam_name and subject_name and start_time:
+                formatted_time = start_time.strftime("%d/%m/%Y %H:%M") if hasattr(start_time, 'strftime') else start_time
+                name = f"{exam_name} - {subject_name} ({formatted_time})"
+            elif exam_name and subject_name:
+                name = f"{exam_name} - {subject_name}"
+            
+            node = cls(
+                schedule_id=schedule_id,
                 exam_id=getattr(schedule_model, 'exam_id', None),
                 subject_id=getattr(schedule_model, 'subject_id', None),
                 exam_subject_id=getattr(schedule_model, 'exam_subject_id', None),
@@ -227,6 +268,10 @@ class ExamScheduleNode:
                 date=getattr(schedule_model, 'date', None),
                 additional_info=getattr(schedule_model, 'additional_info', None)
             )
+            
+            # Thêm tên có ý nghĩa
+            node.name = name
+            return node
     
     @staticmethod
     def from_record(record):
@@ -240,8 +285,13 @@ class ExamScheduleNode:
             ExamScheduleNode instance
         """
         node = record['s']  # 's' là alias cho schedule trong cypher query
-        return ExamScheduleNode(
-            schedule_id=node['schedule_id'],
+        schedule_id = node['schedule_id']
+        
+        # Tạo tên có ý nghĩa nếu có thể
+        name = node.get('name', f"Schedule {schedule_id}")
+        
+        result = ExamScheduleNode(
+            schedule_id=schedule_id,
             exam_id=node.get('exam_id'),
             subject_id=node.get('subject_id'),
             exam_subject_id=node.get('exam_subject_id'),
@@ -254,6 +304,10 @@ class ExamScheduleNode:
             date=node.get('date'),
             additional_info=node.get('additional_info')
         )
+        
+        # Đảm bảo name được thiết lập
+        result.name = name
+        return result
     
     def __repr__(self):
         return f"<ExamScheduleNode(schedule_id='{self.schedule_id}', start_time='{self.start_time}')>" 

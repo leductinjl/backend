@@ -41,7 +41,6 @@ class SchoolNode:
         return """
         MERGE (s:School:OntologyInstance {school_id: $school_id})
         ON CREATE SET
-            s:Thing,
             s.school_name = $school_name,
             s.name = $name,
             s.address = $address,

@@ -7,7 +7,7 @@ This module defines the ExamRoomGraphRepository class for managing ExamRoom node
 import logging
 from typing import Dict, List, Optional, Union
 
-from neo4j import Driver
+from neo4j import AsyncDriver
 from neo4j.exceptions import Neo4jError
 
 from app.domain.graph_models.exam_room_node import ExamRoomNode, INSTANCE_OF_REL, LOCATED_IN_REL
@@ -25,16 +25,16 @@ class ExamRoomGraphRepository:
     Cung cấp các phương thức để tương tác với các node ExamRoom trong Neo4j.
     """
     
-    def __init__(self, driver: Driver):
+    def __init__(self, driver: AsyncDriver):
         """
         Khởi tạo repository với neo4j driver.
         
         Args:
-            driver: Neo4j driver instance
+            driver: Neo4j async driver instance
         """
         self.driver = driver
         
-    def create_or_update(self, room: Union[Dict, ExamRoomNode]) -> Optional[ExamRoomNode]:
+    async def create_or_update(self, room: Union[Dict, ExamRoomNode]) -> Optional[ExamRoomNode]:
         """
         Tạo mới hoặc cập nhật node ExamRoom.
         
@@ -58,34 +58,29 @@ class ExamRoomGraphRepository:
             )
         
         try:
-            with self.driver.session() as session:
+            async with self.driver.session() as session:
                 # Tạo hoặc cập nhật node
-                result = session.execute_write(
-                    lambda tx: tx.run(
-                        ExamRoomNode.create_query(),
-                        **room.to_dict()
-                    ).single()
+                result = await session.run(
+                    ExamRoomNode.create_query(),
+                    **room.to_dict()
                 )
+                record = await result.single()
                 
                 # Tạo các mối quan hệ
-                session.execute_write(
-                    lambda tx: tx.run(
-                        room.create_relationships_query(),
-                        **room.to_dict()
-                    )
+                await session.run(
+                    room.create_relationships_query(),
+                    **room.to_dict()
                 )
                 
                 # Tạo mối quan hệ INSTANCE_OF nếu có phương thức
                 if hasattr(room, 'create_instance_of_relationship_query'):
-                    session.execute_write(
-                        lambda tx: tx.run(
-                            room.create_instance_of_relationship_query(),
-                            **room.to_dict()
-                        )
+                    await session.run(
+                        room.create_instance_of_relationship_query(),
+                        **room.to_dict()
                     )
                     logger.info(f"Created INSTANCE_OF relationship for exam room {room.room_id}")
                 
-                return ExamRoomNode.from_record(result)
+                return ExamRoomNode.from_record(record)
         except Neo4jError as e:
             logger.error(f"Error creating/updating ExamRoom node: {e}")
             return None
@@ -93,7 +88,7 @@ class ExamRoomGraphRepository:
             logger.error(f"Unexpected error in create_or_update: {e}")
             return None
     
-    def get_by_id(self, room_id: str) -> Optional[ExamRoomNode]:
+    async def get_by_id(self, room_id: str) -> Optional[ExamRoomNode]:
         """
         Lấy ExamRoom theo ID.
         
@@ -109,11 +104,10 @@ class ExamRoomGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, room_id=room_id).single()
-                )
-                return ExamRoomNode.from_record(result) if result else None
+            async with self.driver.session() as session:
+                result = await session.run(query, room_id=room_id)
+                record = await result.single()
+                return ExamRoomNode.from_record(record) if record else None
         except Neo4jError as e:
             logger.error(f"Error retrieving ExamRoom by ID: {e}")
             return None
@@ -121,7 +115,7 @@ class ExamRoomGraphRepository:
             logger.error(f"Unexpected error in get_by_id: {e}")
             return None
     
-    def delete(self, room_id: str) -> bool:
+    async def delete(self, room_id: str) -> bool:
         """
         Xóa node ExamRoom.
         
@@ -138,11 +132,10 @@ class ExamRoomGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_write(
-                    lambda tx: tx.run(query, room_id=room_id).single()
-                )
-                return result and result["deleted_count"] > 0
+            async with self.driver.session() as session:
+                result = await session.run(query, room_id=room_id)
+                record = await result.single()
+                return record and record["deleted_count"] > 0
         except Neo4jError as e:
             logger.error(f"Error deleting ExamRoom: {e}")
             return False
@@ -150,7 +143,7 @@ class ExamRoomGraphRepository:
             logger.error(f"Unexpected error in delete: {e}")
             return False
     
-    def get_by_location(self, location_id: str) -> List[ExamRoomNode]:
+    async def get_by_location(self, location_id: str) -> List[ExamRoomNode]:
         """
         Lấy tất cả các phòng thi tại một địa điểm.
         
@@ -166,11 +159,10 @@ class ExamRoomGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, location_id=location_id).data()
-                )
-                return [ExamRoomNode.from_record(record) for record in result]
+            async with self.driver.session() as session:
+                result = await session.run(query, location_id=location_id)
+                records = await result.data()
+                return [ExamRoomNode.from_record(record) for record in records]
         except Neo4jError as e:
             logger.error(f"Error retrieving rooms by location: {e}")
             return []
@@ -178,7 +170,7 @@ class ExamRoomGraphRepository:
             logger.error(f"Unexpected error in get_by_location: {e}")
             return []
     
-    def get_exams(self, room_id: str) -> List[Dict]:
+    async def get_exams(self, room_id: str) -> List[Dict]:
         """
         Lấy tất cả các kỳ thi diễn ra tại một phòng thi.
         
@@ -194,11 +186,10 @@ class ExamRoomGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, room_id=room_id).data()
-                )
-                return [record["e"] for record in result]
+            async with self.driver.session() as session:
+                result = await session.run(query, room_id=room_id)
+                records = await result.data()
+                return [record["e"] for record in records]
         except Neo4jError as e:
             logger.error(f"Error retrieving exams for room: {e}")
             return []
@@ -206,7 +197,7 @@ class ExamRoomGraphRepository:
             logger.error(f"Unexpected error in get_exams: {e}")
             return []
     
-    def get_all_rooms(self) -> List[ExamRoomNode]:
+    async def get_all_rooms(self) -> List[ExamRoomNode]:
         """
         Lấy tất cả các phòng thi.
         
@@ -219,11 +210,10 @@ class ExamRoomGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query).data()
-                )
-                return [ExamRoomNode.from_record(record) for record in result]
+            async with self.driver.session() as session:
+                result = await session.run(query)
+                records = await result.data()
+                return [ExamRoomNode.from_record(record) for record in records]
         except Neo4jError as e:
             logger.error(f"Error retrieving all rooms: {e}")
             return []
@@ -231,7 +221,7 @@ class ExamRoomGraphRepository:
             logger.error(f"Unexpected error in get_all_rooms: {e}")
             return []
     
-    def add_exam_relationship(self, room_id: str, exam_id: str) -> bool:
+    async def add_exam_relationship(self, room_id: str, exam_id: str) -> bool:
         """
         Thêm mối quan hệ giữa phòng thi và kỳ thi.
         
@@ -250,14 +240,10 @@ class ExamRoomGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_write(
-                    lambda tx: tx.run(query, room_id=room_id, exam_id=exam_id).data()
-                )
-                if len(result) > 0:
-                    logger.info(f"Added {HELD_IN_REL} relationship between exam {exam_id} and room {room_id}")
-                    return True
-                return False
+            async with self.driver.session() as session:
+                result = await session.run(query, room_id=room_id, exam_id=exam_id)
+                record = await result.single()
+                return record is not None
         except Neo4jError as e:
             logger.error(f"Error adding exam relationship: {e}")
             return False

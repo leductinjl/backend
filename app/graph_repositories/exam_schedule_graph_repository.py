@@ -34,7 +34,7 @@ class ExamScheduleGraphRepository:
         self.neo4j = neo4j_service
         self.logger = logging.getLogger(__name__)
     
-    def create_or_update(self, schedule: ExamScheduleNode) -> Dict[str, Any]:
+    async def create_or_update(self, schedule: ExamScheduleNode) -> Dict[str, Any]:
         """
         Create or update an ExamSchedule node in the graph.
         
@@ -46,7 +46,7 @@ class ExamScheduleGraphRepository:
         """
         try:
             # Create or update the ExamSchedule node
-            result = self.neo4j.run_query(
+            result = await self.neo4j.execute_query(
                 schedule.create_query(), 
                 schedule.to_dict()
             )
@@ -54,21 +54,21 @@ class ExamScheduleGraphRepository:
             # Create relationships
             relationships_query = schedule.create_relationships_query()
             if relationships_query:
-                self.neo4j.run_query(relationships_query, schedule.to_dict())
+                await self.neo4j.execute_query(relationships_query, schedule.to_dict())
             
             # Create INSTANCE_OF relationship if the method exists
             if hasattr(schedule, 'create_instance_of_relationship_query'):
                 instance_query = schedule.create_instance_of_relationship_query()
                 if instance_query:
-                    self.neo4j.run_query(instance_query, schedule.to_dict())
+                    await self.neo4j.execute_query(instance_query, schedule.to_dict())
             
-            if result:
-                record = result[0]
+            if result and len(result) > 0:
+                # Avoid directly returning ExamScheduleNode.from_record and just return success
                 self.logger.info(f"ExamSchedule node created/updated: {schedule.schedule_id}")
-                return ExamScheduleNode.from_record(record).to_dict()
-            else:
-                self.logger.error(f"Failed to create/update ExamSchedule node: {schedule.schedule_id}")
-                return None
+                return schedule.to_dict()  # Return the original dictionary that was used for creation
+            
+            self.logger.error(f"Failed to create/update ExamSchedule node: {schedule.schedule_id}")
+            return None
         except Neo4jError as e:
             self.logger.error(f"Neo4j error creating/updating ExamSchedule: {str(e)}")
             raise
@@ -76,7 +76,7 @@ class ExamScheduleGraphRepository:
             self.logger.error(f"Error creating/updating ExamSchedule: {str(e)}")
             raise
     
-    def get_by_id(self, schedule_id: str) -> Optional[ExamScheduleNode]:
+    async def get_by_id(self, schedule_id: str) -> Optional[ExamScheduleNode]:
         """
         Retrieve an ExamSchedule node by its ID.
         
@@ -93,16 +93,31 @@ class ExamScheduleGraphRepository:
         params = {"schedule_id": schedule_id}
         
         try:
-            result = self.neo4j.run_query(query, params)
-            if result and len(result) > 0:
-                return ExamScheduleNode.from_record(result[0])
+            result = await self.neo4j.execute_query(query, params)
+            if result and len(result) > 0 and result[0][0]:
+                # Create ExamScheduleNode directly from properties
+                node_data = dict(result[0][0])
+                return ExamScheduleNode(
+                    schedule_id=schedule_id,
+                    exam_id=node_data.get('exam_id'),
+                    subject_id=node_data.get('subject_id'),
+                    exam_subject_id=node_data.get('exam_subject_id'),
+                    location_id=node_data.get('location_id'),
+                    room_id=node_data.get('room_id'),
+                    start_time=node_data.get('start_time'),
+                    end_time=node_data.get('end_time'),
+                    description=node_data.get('description'),
+                    status=node_data.get('status'),
+                    date=node_data.get('date'),
+                    additional_info=node_data.get('additional_info')
+                )
             else:
                 return None
         except Exception as e:
             self.logger.error(f"Error retrieving ExamSchedule by ID: {str(e)}")
             raise
     
-    def get_by_exam(self, exam_id: str) -> List[ExamScheduleNode]:
+    async def get_by_exam(self, exam_id: str) -> List[ExamScheduleNode]:
         """
         Retrieve all schedules for a specific exam.
         
@@ -119,13 +134,32 @@ class ExamScheduleGraphRepository:
         params = {"exam_id": exam_id}
         
         try:
-            result = self.neo4j.run_query(query, params)
-            return [ExamScheduleNode.from_record(record) for record in result]
+            result = await self.neo4j.execute_query(query, params)
+            schedules = []
+            for record in result:
+                if record and len(record) > 0 and record[0]:
+                    node_data = dict(record[0])
+                    schedule = ExamScheduleNode(
+                        schedule_id=node_data.get('schedule_id'),
+                        exam_id=exam_id,
+                        subject_id=node_data.get('subject_id'),
+                        exam_subject_id=node_data.get('exam_subject_id'),
+                        location_id=node_data.get('location_id'),
+                        room_id=node_data.get('room_id'),
+                        start_time=node_data.get('start_time'),
+                        end_time=node_data.get('end_time'),
+                        description=node_data.get('description'),
+                        status=node_data.get('status'),
+                        date=node_data.get('date'),
+                        additional_info=node_data.get('additional_info')
+                    )
+                    schedules.append(schedule)
+            return schedules
         except Exception as e:
             self.logger.error(f"Error retrieving schedules by exam: {str(e)}")
             raise
     
-    def get_by_location(self, location_id: str) -> List[ExamScheduleNode]:
+    async def get_by_location(self, location_id: str) -> List[ExamScheduleNode]:
         """
         Retrieve all schedules for a specific location.
         
@@ -142,13 +176,34 @@ class ExamScheduleGraphRepository:
         params = {"location_id": location_id}
         
         try:
-            result = self.neo4j.run_query(query, params)
-            return [ExamScheduleNode.from_record(record) for record in result]
+            result = await self.neo4j.execute_query(query, params)
+            schedules = []
+            for record in result:
+                if record and len(record) > 0 and record[0]:
+                    node_data = dict(record[0])
+                    schedule = ExamScheduleNode(
+                        schedule_id=node_data.get('schedule_id'),
+                        exam_id=node_data.get('exam_id'),
+                        subject_id=node_data.get('subject_id'),
+                        exam_subject_id=node_data.get('exam_subject_id'),
+                        location_id=location_id,
+                        room_id=node_data.get('room_id'),
+                        start_time=node_data.get('start_time'),
+                        end_time=node_data.get('end_time'),
+                        description=node_data.get('description'),
+                        status=node_data.get('status'),
+                        date=node_data.get('date'),
+                        additional_info=node_data.get('additional_info')
+                    )
+                    # Set name from node data or create a default
+                    schedule.name = node_data.get('name', f"Schedule {node_data.get('schedule_id')}")
+                    schedules.append(schedule)
+            return schedules
         except Exception as e:
             self.logger.error(f"Error retrieving schedules by location: {str(e)}")
             raise
     
-    def get_by_room(self, room_id: str) -> List[ExamScheduleNode]:
+    async def get_by_room(self, room_id: str) -> List[ExamScheduleNode]:
         """
         Retrieve all schedules for a specific room.
         
@@ -165,13 +220,34 @@ class ExamScheduleGraphRepository:
         params = {"room_id": room_id}
         
         try:
-            result = self.neo4j.run_query(query, params)
-            return [ExamScheduleNode.from_record(record) for record in result]
+            result = await self.neo4j.execute_query(query, params)
+            schedules = []
+            for record in result:
+                if record and len(record) > 0 and record[0]:
+                    node_data = dict(record[0])
+                    schedule = ExamScheduleNode(
+                        schedule_id=node_data.get('schedule_id'),
+                        exam_id=node_data.get('exam_id'),
+                        subject_id=node_data.get('subject_id'),
+                        exam_subject_id=node_data.get('exam_subject_id'),
+                        location_id=node_data.get('location_id'),
+                        room_id=room_id,
+                        start_time=node_data.get('start_time'),
+                        end_time=node_data.get('end_time'),
+                        description=node_data.get('description'),
+                        status=node_data.get('status'),
+                        date=node_data.get('date'),
+                        additional_info=node_data.get('additional_info')
+                    )
+                    # Set name from node data or create a default
+                    schedule.name = node_data.get('name', f"Schedule {node_data.get('schedule_id')}")
+                    schedules.append(schedule)
+            return schedules
         except Exception as e:
             self.logger.error(f"Error retrieving schedules by room: {str(e)}")
             raise
     
-    def get_by_subject(self, subject_id: str) -> List[ExamScheduleNode]:
+    async def get_by_subject(self, subject_id: str) -> List[ExamScheduleNode]:
         """
         Retrieve all schedules for a specific subject.
         
@@ -189,13 +265,13 @@ class ExamScheduleGraphRepository:
         params = {"subject_id": subject_id}
         
         try:
-            result = self.neo4j.run_query(query, params)
+            result = await self.neo4j.execute_query(query, params)
             return [ExamScheduleNode.from_record(record) for record in result]
         except Exception as e:
             self.logger.error(f"Error retrieving schedules by subject: {str(e)}")
             raise
     
-    def get_all_schedules(self) -> List[ExamScheduleNode]:
+    async def get_all_schedules(self) -> List[ExamScheduleNode]:
         """
         Retrieve all ExamSchedule nodes.
         
@@ -208,13 +284,13 @@ class ExamScheduleGraphRepository:
         """
         
         try:
-            result = self.neo4j.run_query(query)
+            result = await self.neo4j.execute_query(query)
             return [ExamScheduleNode.from_record(record) for record in result]
         except Exception as e:
             self.logger.error(f"Error retrieving all schedules: {str(e)}")
             raise
     
-    def delete(self, schedule_id: str) -> bool:
+    async def delete(self, schedule_id: str) -> bool:
         """
         Delete an ExamSchedule node from the graph.
         
@@ -231,14 +307,14 @@ class ExamScheduleGraphRepository:
         params = {"schedule_id": schedule_id}
         
         try:
-            self.neo4j.run_query(query, params)
+            await self.neo4j.execute_query(query, params)
             self.logger.info(f"ExamSchedule node deleted: {schedule_id}")
             return True
         except Exception as e:
             self.logger.error(f"Error deleting ExamSchedule: {str(e)}")
             return False
     
-    def add_participant(self, schedule_id: str, candidate_id: str, participant_data: Dict[str, Any] = None) -> bool:
+    async def add_participant(self, schedule_id: str, candidate_id: str, participant_data: Dict[str, Any] = None) -> bool:
         """
         Create a relationship between a Candidate and an ExamSchedule.
         
@@ -289,7 +365,7 @@ class ExamScheduleGraphRepository:
         """
         
         try:
-            result = self.neo4j.run_query(query, params)
+            result = await self.neo4j.execute_query(query, params)
             if result:
                 self.logger.info(f"Candidate {candidate_id} added to schedule {schedule_id}")
                 return True
@@ -300,7 +376,7 @@ class ExamScheduleGraphRepository:
             self.logger.error(f"Error adding participant: {str(e)}")
             return False
     
-    def get_participants(self, schedule_id: str) -> List[Dict[str, Any]]:
+    async def get_participants(self, schedule_id: str) -> List[Dict[str, Any]]:
         """
         Retrieve all candidates registered for a schedule.
         
@@ -317,7 +393,7 @@ class ExamScheduleGraphRepository:
         params = {"schedule_id": schedule_id}
         
         try:
-            result = self.neo4j.run_query(query, params)
+            result = await self.neo4j.execute_query(query, params)
             participants = []
             for record in result:
                 candidate = record['c']

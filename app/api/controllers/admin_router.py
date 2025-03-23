@@ -315,8 +315,8 @@ async def synchronize_to_neo4j(
     from app.services.sync import MainSyncService
     
     try:
-        sync_service = MainSyncService(neo4j_connection=neo4j, db_session=db)
-        results = await sync_service.bulk_sync_all(resync_ontology=resync_ontology)
+        sync_service = MainSyncService(session=db, driver=neo4j._driver)
+        results = await sync_service.sync_all_entities()
         
         return {
             "status": "success",

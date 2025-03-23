@@ -33,7 +33,7 @@ class ScoreReviewGraphRepository:
         """
         self.driver = driver
         
-    def create_or_update(self, review: Union[Dict, ScoreReviewNode]) -> Optional[ScoreReviewNode]:
+    async def create_or_update(self, review: Union[Dict, ScoreReviewNode]) -> Optional[ScoreReviewNode]:
         """
         Tạo mới hoặc cập nhật node ScoreReview.
         
@@ -62,35 +62,33 @@ class ScoreReviewGraphRepository:
             )
         
         try:
-            with self.driver.session() as session:
-                # Tạo hoặc cập nhật node
-                result = session.execute_write(
-                    lambda tx: tx.run(
-                        ScoreReviewNode.create_query(),
-                        **review.to_dict()
-                    ).single()
-                )
-                
-                # Tạo các mối quan hệ
-                session.execute_write(
-                    lambda tx: tx.run(
-                        review.create_relationships_query(),
-                        **review.to_dict()
-                    )
-                )
-                
-                # Tạo mối quan hệ INSTANCE_OF
-                if hasattr(review, 'create_instance_of_relationship_query'):
-                    session.execute_write(
-                        lambda tx: tx.run(
-                            review.create_instance_of_relationship_query(),
-                            **review.to_dict()
-                        )
+            # Tạo hoặc cập nhật node
+            params = review.to_dict()
+            result = await self.driver.execute_query(
+                ScoreReviewNode.create_query(),
+                params
+            )
+            
+            # Tạo các mối quan hệ
+            await self.driver.execute_query(
+                review.create_relationships_query(),
+                params
+            )
+            
+            # Tạo mối quan hệ INSTANCE_OF
+            if hasattr(review, 'create_instance_of_relationship_query'):
+                instance_query = review.create_instance_of_relationship_query()
+                if instance_query:
+                    await self.driver.execute_query(
+                        instance_query,
+                        params
                     )
                     logger.info(f"Created INSTANCE_OF relationship for ScoreReview {review.review_id}")
-                
-                logger.info(f"Successfully created/updated ScoreReview node: {review.review_id}")
-                return ScoreReviewNode.from_record(result)
+            
+            logger.info(f"Successfully created/updated ScoreReview node: {review.review_id}")
+            if result and len(result) > 0:
+                return review
+            return None
         except Neo4jError as e:
             logger.error(f"Error creating/updating ScoreReview node: {e}")
             return None
@@ -98,7 +96,7 @@ class ScoreReviewGraphRepository:
             logger.error(f"Unexpected error in create_or_update: {e}")
             return None
     
-    def get_by_id(self, review_id: str) -> Optional[ScoreReviewNode]:
+    async def get_by_id(self, review_id: str) -> Optional[ScoreReviewNode]:
         """
         Lấy ScoreReview theo ID.
         
@@ -114,11 +112,13 @@ class ScoreReviewGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, review_id=review_id).single()
-                )
-                return ScoreReviewNode.from_record(result) if result else None
+            result = await self.driver.execute_query(
+                query, 
+                {"review_id": review_id}
+            )
+            if result and len(result) > 0:
+                return ScoreReviewNode.from_record({"r": result[0][0]})
+            return None
         except Neo4jError as e:
             logger.error(f"Error retrieving ScoreReview by ID: {e}")
             return None
@@ -126,7 +126,7 @@ class ScoreReviewGraphRepository:
             logger.error(f"Unexpected error in get_by_id: {e}")
             return None
     
-    def delete(self, review_id: str) -> bool:
+    async def delete(self, review_id: str) -> bool:
         """
         Xóa node ScoreReview.
         
@@ -143,16 +143,17 @@ class ScoreReviewGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_write(
-                    lambda tx: tx.run(query, review_id=review_id).single()
-                )
-                deleted = result and result["deleted_count"] > 0
-                if deleted:
-                    logger.info(f"Successfully deleted ScoreReview: {review_id}")
-                else:
-                    logger.warning(f"No ScoreReview found to delete with ID: {review_id}")
-                return deleted
+            result = await self.driver.execute_query(
+                query,
+                {"review_id": review_id}
+            )
+            
+            deleted = result and len(result) > 0 and result[0][0] > 0
+            if deleted:
+                logger.info(f"Successfully deleted ScoreReview: {review_id}")
+            else:
+                logger.warning(f"No ScoreReview found to delete with ID: {review_id}")
+            return deleted
         except Neo4jError as e:
             logger.error(f"Error deleting ScoreReview: {e}")
             return False
@@ -160,7 +161,7 @@ class ScoreReviewGraphRepository:
             logger.error(f"Unexpected error in delete: {e}")
             return False
     
-    def get_by_candidate(self, candidate_id: str) -> List[ScoreReviewNode]:
+    async def get_by_candidate(self, candidate_id: str) -> List[ScoreReviewNode]:
         """
         Lấy tất cả các đơn phúc khảo của một thí sinh.
         
@@ -176,13 +177,18 @@ class ScoreReviewGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, candidate_id=candidate_id).data()
-                )
-                reviews = [ScoreReviewNode.from_record(record) for record in result]
-                logger.info(f"Retrieved {len(reviews)} score reviews for candidate {candidate_id}")
-                return reviews
+            result = await self.driver.execute_query(
+                query,
+                {"candidate_id": candidate_id}
+            )
+            
+            reviews = []
+            if result and len(result) > 0:
+                for record in result:
+                    reviews.append(ScoreReviewNode.from_record({"r": record[0]}))
+                    
+            logger.info(f"Retrieved {len(reviews)} score reviews for candidate {candidate_id}")
+            return reviews
         except Neo4jError as e:
             logger.error(f"Error retrieving reviews by candidate: {e}")
             return []
@@ -190,7 +196,7 @@ class ScoreReviewGraphRepository:
             logger.error(f"Unexpected error in get_by_candidate: {e}")
             return []
     
-    def get_by_score(self, score_id: str) -> List[ScoreReviewNode]:
+    async def get_by_score(self, score_id: str) -> List[ScoreReviewNode]:
         """
         Lấy tất cả các đơn phúc khảo cho một điểm.
         
@@ -206,13 +212,18 @@ class ScoreReviewGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, score_id=score_id).data()
-                )
-                reviews = [ScoreReviewNode.from_record(record) for record in result]
-                logger.info(f"Retrieved {len(reviews)} score reviews for score {score_id}")
-                return reviews
+            result = await self.driver.execute_query(
+                query,
+                {"score_id": score_id}
+            )
+            
+            reviews = []
+            if result and len(result) > 0:
+                for record in result:
+                    reviews.append(ScoreReviewNode.from_record({"r": record[0]}))
+                    
+            logger.info(f"Retrieved {len(reviews)} score reviews for score {score_id}")
+            return reviews
         except Neo4jError as e:
             logger.error(f"Error retrieving reviews by score: {e}")
             return []
@@ -220,7 +231,7 @@ class ScoreReviewGraphRepository:
             logger.error(f"Unexpected error in get_by_score: {e}")
             return []
     
-    def get_by_exam(self, exam_id: str) -> List[ScoreReviewNode]:
+    async def get_by_exam(self, exam_id: str) -> List[ScoreReviewNode]:
         """
         Lấy tất cả các đơn phúc khảo trong một kỳ thi.
         
@@ -236,13 +247,18 @@ class ScoreReviewGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, exam_id=exam_id).data()
-                )
-                reviews = [ScoreReviewNode.from_record(record) for record in result]
-                logger.info(f"Retrieved {len(reviews)} score reviews for exam {exam_id}")
-                return reviews
+            result = await self.driver.execute_query(
+                query,
+                {"exam_id": exam_id}
+            )
+            
+            reviews = []
+            if result and len(result) > 0:
+                for record in result:
+                    reviews.append(ScoreReviewNode.from_record({"r": record[0]}))
+                    
+            logger.info(f"Retrieved {len(reviews)} score reviews for exam {exam_id}")
+            return reviews
         except Neo4jError as e:
             logger.error(f"Error retrieving reviews by exam: {e}")
             return []
@@ -250,7 +266,7 @@ class ScoreReviewGraphRepository:
             logger.error(f"Unexpected error in get_by_exam: {e}")
             return []
     
-    def get_by_subject(self, subject_id: str) -> List[ScoreReviewNode]:
+    async def get_by_subject(self, subject_id: str) -> List[ScoreReviewNode]:
         """
         Lấy tất cả các đơn phúc khảo cho một môn học.
         
@@ -266,13 +282,18 @@ class ScoreReviewGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, subject_id=subject_id).data()
-                )
-                reviews = [ScoreReviewNode.from_record(record) for record in result]
-                logger.info(f"Retrieved {len(reviews)} score reviews for subject {subject_id}")
-                return reviews
+            result = await self.driver.execute_query(
+                query,
+                {"subject_id": subject_id}
+            )
+            
+            reviews = []
+            if result and len(result) > 0:
+                for record in result:
+                    reviews.append(ScoreReviewNode.from_record({"r": record[0]}))
+                    
+            logger.info(f"Retrieved {len(reviews)} score reviews for subject {subject_id}")
+            return reviews
         except Neo4jError as e:
             logger.error(f"Error retrieving reviews by subject: {e}")
             return []
@@ -280,7 +301,7 @@ class ScoreReviewGraphRepository:
             logger.error(f"Unexpected error in get_by_subject: {e}")
             return []
     
-    def get_by_status(self, status: str) -> List[ScoreReviewNode]:
+    async def get_by_status(self, status: str) -> List[ScoreReviewNode]:
         """
         Lấy tất cả các đơn phúc khảo có trạng thái cụ thể.
         
@@ -297,13 +318,18 @@ class ScoreReviewGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query, status=status).data()
-                )
-                reviews = [ScoreReviewNode.from_record(record) for record in result]
-                logger.info(f"Retrieved {len(reviews)} score reviews with status '{status}'")
-                return reviews
+            result = await self.driver.execute_query(
+                query,
+                {"status": status}
+            )
+            
+            reviews = []
+            if result and len(result) > 0:
+                for record in result:
+                    reviews.append(ScoreReviewNode.from_record({"r": record[0]}))
+                    
+            logger.info(f"Retrieved {len(reviews)} score reviews with status '{status}'")
+            return reviews
         except Neo4jError as e:
             logger.error(f"Error retrieving reviews by status: {e}")
             return []
@@ -311,7 +337,7 @@ class ScoreReviewGraphRepository:
             logger.error(f"Unexpected error in get_by_status: {e}")
             return []
     
-    def get_all_reviews(self) -> List[ScoreReviewNode]:
+    async def get_all_reviews(self) -> List[ScoreReviewNode]:
         """
         Lấy tất cả các đơn phúc khảo.
         
@@ -324,13 +350,15 @@ class ScoreReviewGraphRepository:
         """
         
         try:
-            with self.driver.session() as session:
-                result = session.execute_read(
-                    lambda tx: tx.run(query).data()
-                )
-                reviews = [ScoreReviewNode.from_record(record) for record in result]
-                logger.info(f"Retrieved {len(reviews)} score reviews in total")
-                return reviews
+            result = await self.driver.execute_query(query, {})
+            
+            reviews = []
+            if result and len(result) > 0:
+                for record in result:
+                    reviews.append(ScoreReviewNode.from_record({"r": record[0]}))
+                    
+            logger.info(f"Retrieved {len(reviews)} score reviews in total")
+            return reviews
         except Neo4jError as e:
             logger.error(f"Error retrieving all reviews: {e}")
             return []

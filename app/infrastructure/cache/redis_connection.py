@@ -146,6 +146,22 @@ class RedisCache:
             logging.error(f"Error deleting key from Redis: {e}")
             return False
 
+    async def exists(self, key):
+        """
+        Check if a key exists in the cache.
+        
+        Args:
+            key (str): The cache key to check
+            
+        Returns:
+            bool: True if the key exists, False otherwise
+        """
+        try:
+            return await self._client.exists(key) > 0
+        except Exception as e:
+            logging.error(f"Error checking if key exists in Redis: {e}")
+            return False
+
     async def ttl(self, key):
         """
         Get the time-to-live for a key.

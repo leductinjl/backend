@@ -23,6 +23,7 @@ from app.domain.models.user import User
 from app.domain.models.security_log import SecurityLog
 from app.services.id_service import generate_model_id
 from app.infrastructure.cache.redis_connection import get_redis
+from sqlalchemy import select, text
 
 class AdminAuthenticationMiddleware(BaseHTTPMiddleware):
     """
@@ -151,9 +152,8 @@ class AdminAuthenticationMiddleware(BaseHTTPMiddleware):
                 db = await anext(db_gen)
                 
                 # Get user from database to ensure account is still active and has correct role
-                user_result = await db.execute(
-                    db.query(User).filter(User.user_id == user_id)
-                )
+                user_query = select(User).where(User.user_id == user_id)
+                user_result = await db.execute(user_query)
                 user = user_result.scalar_one_or_none()
                 
                 if not user:
@@ -175,12 +175,12 @@ class AdminAuthenticationMiddleware(BaseHTTPMiddleware):
                 # Fetch permissions from database for the role
                 permissions = []
                 if user.role_id:
-                    permissions_result = await db.execute("""
+                    permissions_result = await db.execute(text("""
                         SELECT p.name 
                         FROM permissions p
                         JOIN role_permissions rp ON p.permission_id = rp.permission_id
                         WHERE rp.role_id = :role_id
-                    """, {"role_id": user.role_id})
+                    """), {"role_id": user.role_id})
                     
                     permissions = [row[0] for row in permissions_result]
                 

@@ -57,7 +57,10 @@ class ExamLocationNode:
             l.capacity = $capacity,
             l.coordinates = $coordinates,
             l.status = $status,
-            l.contact_info = $contact_info,
+            l.contact_info_str = $contact_info_str,
+            l.contact_website = $contact_website, 
+            l.contact_phone = $contact_phone,
+            l.contact_email = $contact_email,
             l.additional_info = $additional_info,
             l.created_at = datetime()
         ON MATCH SET
@@ -67,7 +70,10 @@ class ExamLocationNode:
             l.capacity = $capacity,
             l.coordinates = $coordinates,
             l.status = $status,
-            l.contact_info = $contact_info,
+            l.contact_info_str = $contact_info_str,
+            l.contact_website = $contact_website,
+            l.contact_phone = $contact_phone,
+            l.contact_email = $contact_email,
             l.additional_info = $additional_info,
             l.updated_at = datetime()
         RETURN l
@@ -93,7 +99,7 @@ class ExamLocationNode:
         """
         return f"""
         MATCH (l:ExamLocation:OntologyInstance {{location_id: $location_id}})
-        MATCH (class:OntologyClass {{id: 'exam-location-class'}})
+        MATCH (class:OntologyClass {{id: 'examlocation-class'}})
         MERGE (l)-[:{INSTANCE_OF_REL}]->(class)
         """
     
@@ -101,6 +107,26 @@ class ExamLocationNode:
         """
         Chuyển đổi thành dictionary để sử dụng trong Neo4j query.
         """
+        # Process contact_info to ensure it's compatible with Neo4j
+        # Neo4j doesn't support nested objects as properties
+        contact_info_str = None
+        contact_website = None
+        contact_phone = None
+        contact_email = None
+        
+        # Extract individual contact fields if contact_info is a dictionary
+        if isinstance(self.contact_info, dict):
+            contact_website = self.contact_info.get('website')
+            contact_phone = self.contact_info.get('phone')
+            contact_email = self.contact_info.get('email')
+            import json
+            try:
+                contact_info_str = json.dumps(self.contact_info)
+            except:
+                contact_info_str = str(self.contact_info)
+        elif self.contact_info is not None:
+            contact_info_str = str(self.contact_info)
+            
         return {
             "location_id": self.location_id,
             "location_name": self.location_name,
@@ -109,7 +135,11 @@ class ExamLocationNode:
             "capacity": self.capacity,
             "coordinates": self.coordinates,
             "status": self.status,
-            "contact_info": self.contact_info,
+            # Replace contact_info with serialized string and individual fields
+            "contact_info_str": contact_info_str,
+            "contact_website": contact_website,
+            "contact_phone": contact_phone,
+            "contact_email": contact_email,
             "additional_info": self.additional_info
         }
     
@@ -161,6 +191,25 @@ class ExamLocationNode:
             ExamLocationNode instance
         """
         node = record['l']  # 'l' là alias cho location trong cypher query
+        
+        # Reconstruct contact_info from individual fields if available
+        contact_info = None
+        if node.get('contact_website') or node.get('contact_phone') or node.get('contact_email'):
+            contact_info = {}
+            if node.get('contact_website'):
+                contact_info['website'] = node.get('contact_website')
+            if node.get('contact_phone'):
+                contact_info['phone'] = node.get('contact_phone')
+            if node.get('contact_email'):
+                contact_info['email'] = node.get('contact_email')
+        # Fall back to contact_info_str
+        elif node.get('contact_info_str'):
+            import json
+            try:
+                contact_info = json.loads(node.get('contact_info_str'))
+            except:
+                contact_info = node.get('contact_info_str')
+        
         return ExamLocationNode(
             location_id=node['location_id'],
             location_name=node['location_name'],
@@ -168,7 +217,7 @@ class ExamLocationNode:
             capacity=node.get('capacity'),
             coordinates=node.get('coordinates'),
             status=node.get('status'),
-            contact_info=node.get('contact_info'),
+            contact_info=contact_info,
             additional_info=node.get('additional_info')
         )
     

@@ -58,7 +58,6 @@ class ExamRoomNode:
         return """
         MERGE (r:ExamRoom:OntologyInstance {room_id: $room_id})
         ON CREATE SET
-            r:Thing, 
             r.room_name = $room_name,
             r.name = $name,
             r.capacity = $capacity,
@@ -108,7 +107,7 @@ class ExamRoomNode:
         """
         return f"""
         MATCH (r:ExamRoom:OntologyInstance {{room_id: $room_id}})
-        MATCH (class:OntologyClass {{id: 'exam-room-class'}})
+        MATCH (class:OntologyClass {{id: 'examroom-class'}})
         MERGE (r)-[:{INSTANCE_OF_REL}]->(class)
         """
     

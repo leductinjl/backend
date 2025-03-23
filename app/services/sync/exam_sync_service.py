@@ -74,7 +74,7 @@ class ExamSyncService(BaseSyncService):
                 # Synchronize key relationships
                 await self._sync_relationships(exam)
                 logger.info(f"Successfully synchronized exam {exam_id}")
-            return True
+                return True
             else:
                 logger.error(f"Failed to synchronize exam {exam_id}")
                 return False

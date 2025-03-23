@@ -78,7 +78,9 @@ class ExamScheduleSyncService(BaseSyncService):
                 "status": schedule.status,
                 "exam_id": schedule.exam_id,  # Using property from ExamSchedule model
                 "subject_id": schedule.subject_id,  # Using property from ExamSchedule model
-                "location_id": schedule.location_id  # Using property from ExamSchedule model
+                "location_id": schedule.location_id,  # Using property from ExamSchedule model
+                "exam_name": schedule.exam_name,  # Direct property access
+                "subject_name": schedule.subject_name  # Direct property access
             }
             
             # Convert to Neo4j node and save
@@ -141,9 +143,24 @@ class ExamScheduleSyncService(BaseSyncService):
             ExamScheduleNode instance ready for Neo4j
         """
         try:
+            # Create a meaningful name for the schedule
+            schedule_id = schedule.get("exam_schedule_id") or schedule.get("schedule_id")
+            name = f"Schedule {schedule_id}"
+            
+            # Get more descriptive information if available
+            exam_name = schedule.get("exam_name")
+            subject_name = schedule.get("subject_name")
+            start_time = schedule.get("start_time")
+            
+            if exam_name and subject_name and start_time:
+                formatted_time = start_time.strftime("%d/%m/%Y %H:%M") if hasattr(start_time, 'strftime') else start_time
+                name = f"{exam_name} - {subject_name} ({formatted_time})"
+            elif exam_name and subject_name:
+                name = f"{exam_name} - {subject_name}"
+            
             # Create the exam schedule node
             schedule_node = ExamScheduleNode(
-                schedule_id=schedule.get("exam_schedule_id") or schedule.get("schedule_id"),
+                schedule_id=schedule_id,
                 exam_id=schedule.get("exam_id"),
                 subject_id=schedule.get("subject_id"),
                 exam_subject_id=schedule.get("exam_subject_id"),
@@ -156,6 +173,9 @@ class ExamScheduleSyncService(BaseSyncService):
                 date=schedule.get("start_time").date() if schedule.get("start_time") else None,
                 additional_info=None
             )
+            
+            # Set the name explicitly in case the constructor logic changes
+            schedule_node.name = name
             
             return schedule_node
             

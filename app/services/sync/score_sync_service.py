@@ -100,10 +100,21 @@ class ScoreSyncService(BaseSyncService):
             # Get all scores from SQL database with pagination
             scores, total = await self.sql_repository.get_all(skip=offset, limit=limit or 100)
             
-            logger.info(f"Found {total} scores to synchronize")
+            # Track processed score IDs to avoid duplicates
+            processed_score_ids = set()
+            unique_scores = []
             
-            # Synchronize each score
+            # Filter out duplicate scores
             for score in scores:
+                score_id = score["exam_score_id"]
+                if score_id not in processed_score_ids:
+                    processed_score_ids.add(score_id)
+                    unique_scores.append(score)
+            
+            logger.info(f"Found {len(unique_scores)} unique scores to synchronize from {total} total records")
+            
+            # Synchronize each unique score
+            for score in unique_scores:
                 if await self.sync_by_id(score["exam_score_id"]):
                     success_count += 1
                 else:
@@ -128,24 +139,38 @@ class ScoreSyncService(BaseSyncService):
         """
         try:
             # Extract the required fields from the score data
-            # The score data should already include related entities like candidate, exam, and subject
+            score_value = score_data.get("score")
+            subject_name = score_data.get("subject_name")
+            exam_name = score_data.get("exam_name")
+            
+            # Create a meaningful name for the score
+            name = None
+            if score_value is not None and subject_name:
+                name = f"{subject_name}: {score_value}"
+            elif score_value is not None and exam_name:
+                name = f"{exam_name}: {score_value}"
+            else:
+                name = f"Score {score_data['exam_score_id']}"
+            
+            # Create the score node with all available data
             score_node = ScoreNode(
                 score_id=score_data["exam_score_id"],
                 candidate_id=score_data.get("candidate_id"),
                 subject_id=score_data.get("subject_id"),
                 exam_id=score_data.get("exam_id"),
-                score_value=score_data.get("score"),
+                score_value=score_value,
                 status=score_data.get("status"),
                 graded_by=score_data.get("graded_by"),
                 graded_at=score_data.get("graded_at"),
                 score_history=score_data.get("score_histories"),
                 # Additional properties for relationships
-                exam_name=score_data.get("exam_name"),
-                subject_name=score_data.get("subject_name"),
-                registration_status=None,  # Need to be obtained from candidate_exam_subject if needed
-                registration_date=None,    # Need to be obtained from candidate_exam_subject if needed
-                is_required=None,          # Need to be obtained from candidate_exam_subject if needed
-                exam_date=None             # Need to be obtained from candidate_exam_subject if needed
+                exam_name=exam_name,
+                subject_name=subject_name,
+                registration_status=score_data.get("registration_status", "REGISTERED"),
+                registration_date=score_data.get("registration_date", ""),
+                is_required=score_data.get("is_required", False),
+                exam_date=score_data.get("exam_date", ""),
+                name=name
             )
             
             return score_node

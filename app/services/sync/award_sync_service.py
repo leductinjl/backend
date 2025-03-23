@@ -108,7 +108,7 @@ class AwardSyncService(BaseSyncService):
             
             # Synchronize each award
             for award in awards:
-                if await self.sync_by_id(award.id):
+                if await self.sync_by_id(award.award_id):
                     success_count += 1
                 else:
                     failure_count += 1

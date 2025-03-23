@@ -72,7 +72,6 @@ class ScoreReviewNode:
         return """
         MERGE (r:ScoreReview:OntologyInstance {review_id: $review_id})
         ON CREATE SET
-            r:Thing, 
             r.review_name = $review_name,
             r.name = $name,
             r.status = $status,
@@ -108,7 +107,7 @@ class ScoreReviewNode:
         """
         return f"""
         MATCH (r:ScoreReview:OntologyInstance {{review_id: $review_id}})
-        MATCH (class:OntologyClass {{id: 'score-review-class'}})
+        MATCH (class:OntologyClass {{id: 'scorereview-class'}})
         MERGE (r)-[:{INSTANCE_OF_REL}]->(class)
         """
     
@@ -126,9 +125,9 @@ class ScoreReviewNode:
         WITH r, s
         WHERE s IS NOT NULL
         MERGE (r)-[:{REVIEWS_REL} {{
-            review_date: $request_date,
-            review_status: $status,
-            reviewer: $reviewer
+            review_date: CASE WHEN $request_date IS NULL THEN '' ELSE $request_date END,
+            review_status: CASE WHEN $status IS NULL THEN 'PENDING' ELSE $status END,
+            reviewer: CASE WHEN $reviewer IS NULL THEN '' ELSE $reviewer END
         }}]->(s)
         
         // Tạo quan hệ với Candidate nếu có
@@ -157,6 +156,10 @@ class ScoreReviewNode:
         """
         Chuyển đổi thành dictionary để sử dụng trong Neo4j query.
         """
+        # Convert Decimal values to float for Neo4j compatibility
+        old_score = float(self.old_score) if self.old_score is not None else None
+        new_score = float(self.new_score) if self.new_score is not None else None
+        
         result = {
             "review_id": self.review_id,
             "review_name": self.review_name,
@@ -168,8 +171,8 @@ class ScoreReviewNode:
             "status": self.status,
             "request_date": self.request_date,
             "resolution_date": self.resolution_date,
-            "old_score": self.old_score,
-            "new_score": self.new_score,
+            "old_score": old_score,
+            "new_score": new_score,
             "reviewer": self.reviewer,
             "reason": self.reason,
             "additional_info": self.additional_info

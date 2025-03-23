@@ -39,7 +39,6 @@ class MajorNode:
         return """
         MERGE (m:Major:OntologyInstance {major_id: $major_id})
         ON CREATE SET
-            m:Thing,
             m.major_name = $major_name,
             m.name = $name,
             m.major_code = $major_code,

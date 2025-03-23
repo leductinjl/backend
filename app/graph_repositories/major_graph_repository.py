@@ -30,7 +30,7 @@ class MajorGraphRepository:
         self.neo4j = neo4j_service
         self.logger = logging.getLogger(__name__)
     
-    def create_or_update(self, major: MajorNode) -> Dict[str, Any]:
+    async def create_or_update(self, major: MajorNode) -> Dict[str, Any]:
         """
         Create or update a Major node in Neo4j.
         
@@ -42,7 +42,7 @@ class MajorGraphRepository:
         """
         try:
             # Create or update the Major node
-            result = self.neo4j.run_query(
+            result = await self.neo4j.execute_query(
                 major.create_query(), 
                 major.to_dict()
             )
@@ -50,18 +50,18 @@ class MajorGraphRepository:
             # Create relationships
             relationships_query = major.create_relationships_query()
             if relationships_query:
-                self.neo4j.run_query(relationships_query, major.to_dict())
+                await self.neo4j.execute_query(relationships_query, major.to_dict())
             
             # Create INSTANCE_OF relationship if the method exists
             if hasattr(major, 'create_instance_of_relationship_query'):
                 instance_query = major.create_instance_of_relationship_query()
                 if instance_query:
-                    self.neo4j.run_query(instance_query, major.to_dict())
+                    await self.neo4j.execute_query(instance_query, major.to_dict())
             
-            if result:
-                record = result[0]
+            if result and len(result) > 0:
                 self.logger.info(f"Major node created/updated: {major.major_id}")
-                return MajorNode.from_record({"m": record['m']}).to_dict()
+                # Return the original major data rather than trying to parse the record
+                return major.to_dict()
             else:
                 self.logger.error(f"Failed to create/update Major node: {major.major_id}")
                 return None
@@ -69,7 +69,7 @@ class MajorGraphRepository:
             self.logger.error(f"Error creating/updating major in Neo4j: {str(e)}")
             raise
     
-    def get_by_id(self, major_id: str) -> Optional[MajorNode]:
+    async def get_by_id(self, major_id: str) -> Optional[MajorNode]:
         """
         Get a major by ID.
         
@@ -86,15 +86,15 @@ class MajorGraphRepository:
         params = {"major_id": major_id}
         
         try:
-            result = self.neo4j.run_query(query, params)
+            result = await self.neo4j.execute_query(query, params)
             if result and len(result) > 0:
-                return MajorNode.from_record({"m": result[0]['m']})
+                return MajorNode.from_record({"m": result[0][0]})
             return None
         except Exception as e:
             self.logger.error(f"Error retrieving major by ID: {str(e)}")
             raise
     
-    def delete(self, major_id: str) -> bool:
+    async def delete(self, major_id: str) -> bool:
         """
         Delete a major from Neo4j.
         
@@ -111,14 +111,14 @@ class MajorGraphRepository:
         params = {"major_id": major_id}
         
         try:
-            self.neo4j.run_query(query, params)
+            await self.neo4j.execute_query(query, params)
             self.logger.info(f"Major node deleted: {major_id}")
             return True
         except Exception as e:
             self.logger.error(f"Error deleting major from Neo4j: {str(e)}")
             return False
     
-    def link_major_to_school(self, major_id: str, school_id: str, link_data: Dict[str, Any] = None) -> bool:
+    async def link_major_to_school(self, major_id: str, school_id: str, link_data: Dict[str, Any] = None) -> bool:
         """
         Create a relationship between a Major and a School.
         
@@ -160,8 +160,8 @@ class MajorGraphRepository:
         """
         
         try:
-            result = self.neo4j.run_query(query, params)
-            if result:
+            result = await self.neo4j.execute_query(query, params)
+            if result and len(result) > 0:
                 self.logger.info(f"Major {major_id} linked to School {school_id}")
                 return True
             else:
@@ -171,7 +171,7 @@ class MajorGraphRepository:
             self.logger.error(f"Error linking major to school: {str(e)}")
             return False
     
-    def link_candidate_to_major(self, candidate_id: str, major_id: str, link_data: Dict[str, Any] = None) -> bool:
+    async def link_candidate_to_major(self, candidate_id: str, major_id: str, link_data: Dict[str, Any] = None) -> bool:
         """
         Create a relationship between a Candidate and a Major.
         
@@ -225,7 +225,7 @@ class MajorGraphRepository:
         """
         
         try:
-            result = self.neo4j.run_query(query, params)
+            result = await self.neo4j.execute_query(query, params)
             if result:
                 self.logger.info(f"Candidate {candidate_id} linked to Major {major_id}")
                 return True
@@ -236,7 +236,7 @@ class MajorGraphRepository:
             self.logger.error(f"Error linking candidate to major: {str(e)}")
             return False
     
-    def get_schools_offering_major(self, major_id: str) -> List[Dict[str, Any]]:
+    async def get_schools_offering_major(self, major_id: str) -> List[Dict[str, Any]]:
         """
         Get all schools that offer this major.
         
@@ -253,7 +253,7 @@ class MajorGraphRepository:
         params = {"major_id": major_id}
         
         try:
-            result = self.neo4j.run_query(query, params)
+            result = await self.neo4j.execute_query(query, params)
             schools = []
             
             for record in result:
@@ -274,7 +274,7 @@ class MajorGraphRepository:
             self.logger.error(f"Error getting schools for major: {str(e)}")
             return []
     
-    def get_candidates_studying_major(self, major_id: str) -> List[Dict[str, Any]]:
+    async def get_candidates_studying_major(self, major_id: str) -> List[Dict[str, Any]]:
         """
         Get all candidates who study this major.
         
@@ -291,7 +291,7 @@ class MajorGraphRepository:
         params = {"major_id": major_id}
         
         try:
-            result = self.neo4j.run_query(query, params)
+            result = await self.neo4j.execute_query(query, params)
             candidates = []
             
             for record in result:
@@ -315,7 +315,7 @@ class MajorGraphRepository:
             self.logger.error(f"Error getting candidates for major: {str(e)}")
             return []
     
-    def get_all_majors(self, limit: int = 100) -> List[Dict[str, Any]]:
+    async def get_all_majors(self, limit: int = 100) -> List[Dict[str, Any]]:
         """
         Get all majors in the graph.
         
@@ -333,7 +333,7 @@ class MajorGraphRepository:
         params = {"limit": limit}
         
         try:
-            result = self.neo4j.run_query(query, params)
+            result = await self.neo4j.execute_query(query, params)
             majors = []
             
             for record in result:
@@ -346,7 +346,7 @@ class MajorGraphRepository:
             self.logger.error(f"Error getting all majors: {str(e)}")
             return []
     
-    def find_related_majors(self, major_id: str, relationship_threshold: int = 2) -> List[Dict[str, Any]]:
+    async def find_related_majors(self, major_id: str, relationship_threshold: int = 2) -> List[Dict[str, Any]]:
         """
         Find majors that are related to the given major.
         Majors are considered related if they are studied by the same candidates
@@ -389,7 +389,7 @@ class MajorGraphRepository:
         }
         
         try:
-            result = self.neo4j.run_query(query, params)
+            result = await self.neo4j.execute_query(query, params)
             related_majors = []
             
             for record in result:
