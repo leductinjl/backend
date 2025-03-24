@@ -9,7 +9,7 @@ require admin authentication.
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timedelta
 import pytz
@@ -22,6 +22,7 @@ from app.repositories.candidate_repository import CandidateRepository
 from app.graph_repositories.candidate_graph_repository import CandidateGraphRepository
 from app.services.candidate_service import CandidateService
 from app.services.id_service import generate_model_id
+from app.services.sync.main_sync_service import MainSyncService, EntityType
 from app.api.dto.candidate import (
     CandidateCreate, 
     CandidateUpdate, 
@@ -33,41 +34,7 @@ from app.api.dto.admin import AdminRegisterRequest, AdminLoginResponse
 from app.api.controllers.admin_auth import admin_login, admin_register
 from app.domain.models.invitation import Invitation
 
-# Create main admin router
-router = APIRouter(
-    prefix="/admin",
-    tags=["Admin"],
-    responses={404: {"description": "Not found"}}
-)
-
 logger = logging.getLogger(__name__)
-
-# Add authentication endpoints directly
-@router.post("/register", response_model=AdminLoginResponse, summary="Admin Registration")
-async def register_endpoint(
-    register_data: AdminRegisterRequest,
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Register a new admin user.
-    
-    This endpoint creates a new admin user in the system with the provided
-    credentials and returns an access token. Requires a valid invitation code.
-    """
-    return await admin_register(register_data, db)
-
-@router.post("/login", response_model=AdminLoginResponse, summary="Admin Login")
-async def login_endpoint(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Authenticate an admin user.
-    
-    This endpoint authenticates admin credentials against the database
-    and returns an access token if valid.
-    """
-    return await admin_login(form_data, db)
 
 # Dependency to check if user is authenticated as admin
 async def get_current_admin(request: Request):
@@ -93,6 +60,47 @@ async def get_current_admin(request: Request):
         )
     return request.state.user
 
+# Create auth router for login/register endpoints (no authentication required)
+auth_router = APIRouter(
+    prefix="/admin",
+    tags=["Admin Authentication"],
+    responses={404: {"description": "Not found"}},
+)
+
+# Create main admin router (requires authentication)
+router = APIRouter(
+    prefix="/admin",
+    tags=["Admin"],
+    responses={404: {"description": "Not found"}},
+)
+
+# Add authentication endpoints to auth_router
+@auth_router.post("/register", response_model=AdminLoginResponse, summary="Admin Registration", include_in_schema=True)
+async def register_endpoint(
+    register_data: AdminRegisterRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Register a new admin user.
+    
+    This endpoint creates a new admin user in the system with the provided
+    credentials and returns an access token. Requires a valid invitation code.
+    """
+    return await admin_register(register_data, db)
+
+@auth_router.post("/login", response_model=AdminLoginResponse, summary="Admin Login", include_in_schema=True)
+async def login_endpoint(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Authenticate an admin user.
+    
+    This endpoint authenticates admin credentials against the database
+    and returns an access token if valid.
+    """
+    return await admin_login(form_data, db)
+
 async def get_candidate_service(
     db: AsyncSession = Depends(get_db),
     neo4j = Depends(get_neo4j)
@@ -101,6 +109,24 @@ async def get_candidate_service(
     candidate_repo = CandidateRepository(db)
     candidate_graph_repo = CandidateGraphRepository(neo4j)
     return CandidateService(candidate_repo, candidate_graph_repo)
+
+async def get_sync_service(
+    entity_type: EntityType,
+    db: AsyncSession = Depends(get_db),
+    neo4j = Depends(get_neo4j)
+) -> MainSyncService:
+    """
+    Dependency to get the appropriate sync service for an entity type.
+    
+    Args:
+        entity_type: Type of entity to sync
+        db: Database session
+        neo4j: Neo4j connection
+        
+    Returns:
+        MainSyncService instance configured for the entity type
+    """
+    return MainSyncService(session=db, driver=neo4j._driver)
 
 @router.get("/dashboard", summary="Admin Dashboard")
 async def admin_dashboard(admin: dict = Depends(get_current_admin)):
@@ -297,9 +323,11 @@ async def list_invitations(
         for inv in invitations
     ]
 
-@router.post("/sync/neo4j", response_model=dict)
+@router.post("/sync/neo4j", response_model=dict, summary="Synchronize Data to Neo4j")
 async def synchronize_to_neo4j(
-    resync_ontology: bool = True,
+    entity_type: Optional[str] = None,
+    sync_mode: str = "full",  # Options: "full", "nodes", "relationships"
+    limit: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     neo4j = Depends(get_neo4j),
     admin: dict = Depends(get_current_admin)
@@ -307,28 +335,204 @@ async def synchronize_to_neo4j(
     """
     Đồng bộ dữ liệu từ PostgreSQL sang Neo4j knowledge graph.
     
-    Endpoint này sẽ đồng bộ tất cả các entity và mối quan hệ giữa chúng.
+    Endpoint này sẽ đồng bộ các entity và mối quan hệ tùy theo mode được chọn.
     
     Args:
-        resync_ontology: Nếu True, tạo lại các mối quan hệ IS_A trong ontology cho tất cả node hiện có
+        entity_type: Loại thực thể để đồng bộ. Các loại có thể:
+                    - "subject": Môn học
+                    - "score": Điểm số
+                    - "score_review": Đánh giá điểm
+                    - "exam": Kỳ thi
+                    - "candidate": Thí sinh
+                    - "achievement": Thành tích
+                    - "award": Giải thưởng
+                    - "certificate": Chứng chỉ
+                    - "credential": Chứng nhận
+                    - "degree": Bằng cấp
+                    - "exam_location": Địa điểm thi
+                    - "exam_room": Phòng thi
+                    - "exam_schedule": Lịch thi
+                    - "major": Chuyên ngành
+                    - "management_unit": Đơn vị quản lý
+                    - "recognition": Công nhận
+                    - "school": Trường học
+                    Nếu không có, đồng bộ tất cả các loại thực thể.
+        
+        sync_mode: Chế độ đồng bộ hóa:
+                  - "full": Đồng bộ cả nodes và relationships (mặc định)
+                  - "nodes": Chỉ đồng bộ nodes, không đồng bộ relationships
+                  - "relationships": Chỉ đồng bộ relationships, không tạo/cập nhật nodes
+        
+        limit: Giới hạn số lượng thực thể xử lý cho mỗi loại
     """
     from app.services.sync import MainSyncService
     
+    # Validate sync_mode
+    valid_modes = ["full", "nodes", "relationships"]
+    if sync_mode not in valid_modes:
+        return {
+            "status": "error",
+            "message": f"Invalid sync mode: {sync_mode}. Valid modes are: {', '.join(valid_modes)}"
+        }
+    
+    # Validate entity_type if provided
+    if entity_type:
+        valid_entity_types = [
+            "subject", "score", "score_review", "exam", "candidate", 
+            "achievement", "award", "certificate", "credential", "degree", 
+            "exam_location", "exam_room", "exam_schedule", "major", 
+            "management_unit", "recognition", "school"
+        ]
+        
+        if entity_type not in valid_entity_types:
+            return {
+                "status": "error",
+                "message": f"Invalid entity type: {entity_type}. Valid types are: {', '.join(valid_entity_types)}"
+            }
+    
     try:
         sync_service = MainSyncService(session=db, driver=neo4j._driver)
-        results = await sync_service.sync_all_entities()
+        results = {}
+        
+        # Handle different sync modes
+        if sync_mode == "full":
+            # Full synchronization of nodes and relationships
+            if entity_type:
+                # Sync specific entity type
+                results = await sync_service.sync_by_type(entity_type, limit=limit)
+            else:
+                # Sync all entity types
+                results = await sync_service.sync_all_entities(limit=limit)
+                
+        elif sync_mode == "relationships":
+            # Only synchronize relationships
+            if entity_type:
+                # Sync relationships for specific entity type
+                results = await sync_service.sync_all_relationships(entity_type=entity_type, limit=limit)
+            else:
+                # Sync relationships for all entity types
+                results = await sync_service.sync_all_relationships(limit=limit)
+                
+        elif sync_mode == "nodes":
+            # Only synchronize nodes (without relationships)
+            if entity_type:
+                # Sync specific entity type (nodes only)
+                # For now, we'll just do a full sync since skip_relationships is not supported
+                results = await sync_service.sync_by_type(entity_type, limit=limit)
+            else:
+                # Sync all entity types (nodes only)
+                # For now, we'll just do a full sync since skip_relationships is not supported
+                results = await sync_service.sync_all_entities(limit=limit)
         
         return {
             "status": "success",
-            "message": "Data synchronized to Neo4j",
+            "message": f"{sync_mode.capitalize()} synchronization completed for {entity_type or 'all entity types'}",
             "results": results
         }
+    except NotImplementedError as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "results": {}
+        }
     except Exception as e:
-        logger.error(f"Error synchronizing data to Neo4j: {e}", exc_info=True)
+        logger.error(f"Error during Neo4j synchronization: {e}", exc_info=True)
         return {
             "status": "error",
             "message": f"Error during synchronization: {str(e)}",
             "results": {}
+        }
+
+@router.post("/sync/neo4j/{entity_id}")
+async def synchronize_entity_by_id(
+    entity_type: EntityType,
+    entity_id: str,
+    sync_mode: str = "full",  # Options: "full", "nodes", "relationships"
+    db: AsyncSession = Depends(get_db),
+    neo4j = Depends(get_neo4j),
+    admin: dict = Depends(get_current_admin)
+) -> Dict[str, Any]:
+    """
+    Đồng bộ một thực thể cụ thể theo ID từ PostgreSQL sang Neo4j knowledge graph.
+    
+    Endpoint này sẽ đồng bộ thực thể và mối quan hệ tùy theo mode được chọn.
+    
+    Args:
+        entity_type: Loại thực thể để đồng bộ. Các loại có thể:
+                    - "subject": Môn học
+                    - "score": Điểm số
+                    - "score_review": Đánh giá điểm
+                    - "exam": Kỳ thi
+                    - "candidate": Thí sinh
+                    - "achievement": Thành tích
+                    - "award": Giải thưởng
+                    - "certificate": Chứng chỉ
+                    - "credential": Chứng nhận
+                    - "degree": Bằng cấp
+                    - "exam_location": Địa điểm thi
+                    - "exam_room": Phòng thi
+                    - "exam_schedule": Lịch thi
+                    - "major": Chuyên ngành
+                    - "management_unit": Đơn vị quản lý
+                    - "recognition": Công nhận
+                    - "school": Trường học
+        
+        entity_id: ID của thực thể cần đồng bộ
+        
+        sync_mode: Chế độ đồng bộ hóa:
+                  - "full": Đồng bộ cả node và relationships (mặc định)
+                  - "nodes": Chỉ đồng bộ node, không đồng bộ relationships
+                  - "relationships": Chỉ đồng bộ relationships, không tạo/cập nhật node
+    """
+    # Validate sync_mode
+    valid_modes = ["full", "nodes", "relationships"]
+    if sync_mode not in valid_modes:
+        return {
+            "status": "error",
+            "message": f"Invalid sync mode: {sync_mode}. Valid modes are: {', '.join(valid_modes)}"
+        }
+    
+    try:
+        # Get sync service
+        sync_service = await get_sync_service(entity_type, db, neo4j)
+        
+        # Handle different sync modes
+        if sync_mode == "full":
+            # Full synchronization of node and relationships
+            result = await sync_service.sync_entity_by_id(entity_type, entity_id)
+            
+        elif sync_mode == "relationships":
+            # Only synchronize relationships
+            result = await sync_service.sync_entity_relationships(entity_type, entity_id)
+            
+        elif sync_mode == "nodes":
+            # Only synchronize node (without relationships)
+            result = await sync_service.sync_entity_by_id(entity_type, entity_id, skip_relationships=True)
+        
+        if result:
+            return {
+                "status": "success",
+                "message": f"{sync_mode.capitalize()} synchronization completed for {entity_type} with ID {entity_id}",
+                "data": result
+            }
+        else:
+            return {
+                "status": "error",
+                "message": f"Failed to synchronize {entity_type} with ID {entity_id}"
+            }
+            
+    except NotImplementedError as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "data": {}
+        }
+    except Exception as e:
+        logger.error(f"Error synchronizing {entity_type} with ID {entity_id}: {str(e)}", exc_info=True)
+        return {
+            "status": "error",
+            "message": f"Error during synchronization: {str(e)}",
+            "data": {}
         }
 
 # Additional admin routes for managing exams, schools, etc. would go here

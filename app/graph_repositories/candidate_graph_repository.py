@@ -7,6 +7,7 @@ This module provides methods for interacting with Candidate nodes in Neo4j.
 from app.domain.graph_models.candidate_node import CandidateNode
 from app.infrastructure.ontology.ontology import RELATIONSHIPS
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,7 @@ class CandidateGraphRepository:
     
     async def add_studies_at_relationship(self, candidate_id, school_id, relationship_data=None):
         """
-        Create a relationship between a candidate and a school.
+        Create a STUDIES_AT relationship between a candidate and a school.
         
         Args:
             candidate_id: ID of the candidate
@@ -148,28 +149,44 @@ class CandidateGraphRepository:
         Returns:
             bool: True if successful, False otherwise
         """
-        query = RELATIONSHIPS["STUDIES_AT"]["create_query"]
-        
-        # Set default values if not provided
-        relationship_data = relationship_data or {}
-        params = {
-            "candidate_id": candidate_id,
-            "school_id": school_id,
-            "start_year": relationship_data.get("start_year"),
-            "end_year": relationship_data.get("end_year"),
-            "education_level": relationship_data.get("education_level")
-        }
-        
         try:
+            # Use a custom query that handles null values
+            query = """
+            MATCH (c:Candidate {candidate_id: $candidate_id})
+            MATCH (s:School {school_id: $school_id})
+            MERGE (c)-[r:STUDIES_AT]->(s)
+            SET r.start_year = $start_year,
+                r.end_year = $end_year,
+                r.education_level = $education_level,
+                r.academic_performance = $academic_performance,
+                r.additional_info = $additional_info,
+                r.updated_at = datetime()
+            RETURN r
+            """
+            
+            # Set default values if not provided
+            relationship_data = relationship_data or {}
+            
+            params = {
+                "candidate_id": candidate_id,
+                "school_id": school_id,
+                "start_year": relationship_data.get("start_year"),
+                "end_year": relationship_data.get("end_year"),
+                "education_level": relationship_data.get("education_level"),
+                "academic_performance": relationship_data.get("academic_performance"),
+                "additional_info": relationship_data.get("additional_info")
+            }
+            
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Added STUDIES_AT relationship: Candidate {candidate_id} -> School {school_id}")
             return True
         except Exception as e:
-            print(f"Error adding STUDIES_AT relationship: {e}")
+            logger.error(f"Error adding STUDIES_AT relationship: {e}")
             return False
     
     async def add_attends_exam_relationship(self, candidate_id, exam_id, relationship_data=None):
         """
-        Create a relationship between a candidate and an exam.
+        Create an ATTENDS_EXAM relationship between a candidate and an exam.
         
         Args:
             candidate_id: ID of the candidate
@@ -179,23 +196,35 @@ class CandidateGraphRepository:
         Returns:
             bool: True if successful, False otherwise
         """
-        query = RELATIONSHIPS["ATTENDS_EXAM"]["create_query"]
-        
-        # Set default values if not provided
-        relationship_data = relationship_data or {}
-        params = {
-            "candidate_id": candidate_id,
-            "exam_id": exam_id,
-            "registration_number": relationship_data.get("registration_number"),
-            "registration_date": relationship_data.get("registration_date"),
-            "status": relationship_data.get("status")
-        }
-        
         try:
+            # Use a custom query that handles null values
+            query = """
+            MATCH (c:Candidate {candidate_id: $candidate_id})
+            MATCH (e:Exam {exam_id: $exam_id})
+            MERGE (c)-[r:ATTENDS_EXAM]->(e)
+            SET r.registration_number = $registration_number,
+                r.registration_date = $registration_date,
+                r.status = $status,
+                r.updated_at = datetime()
+            RETURN r
+            """
+            
+            # Set default values if not provided
+            relationship_data = relationship_data or {}
+            
+            params = {
+                "candidate_id": candidate_id,
+                "exam_id": exam_id,
+                "registration_number": relationship_data.get("registration_number"),
+                "registration_date": relationship_data.get("registration_date"),
+                "status": relationship_data.get("status")
+            }
+            
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Added ATTENDS_EXAM relationship: Candidate {candidate_id} -> Exam {exam_id}")
             return True
         except Exception as e:
-            print(f"Error adding ATTENDS_EXAM relationship: {e}")
+            logger.error(f"Error adding ATTENDS_EXAM relationship: {e}")
             return False
     
     async def add_earns_certificate_relationship(self, candidate_id, certificate_id):
@@ -209,44 +238,72 @@ class CandidateGraphRepository:
         Returns:
             bool: True if successful, False otherwise
         """
-        query = RELATIONSHIPS["EARNS_CERTIFICATE"]["create_query"]
-        
-        params = {
-            "candidate_id": candidate_id,
-            "certificate_id": certificate_id
-        }
-        
         try:
+            # Use the predefined query from ontology
+            query = RELATIONSHIPS["EARNS_CERTIFICATE"]["create_query"]
+            
+            params = {
+                "candidate_id": candidate_id,
+                "certificate_id": certificate_id
+            }
+            
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Added EARNS_CERTIFICATE relationship: Candidate {candidate_id} -> Certificate {certificate_id}")
             return True
         except Exception as e:
-            print(f"Error adding EARNS_CERTIFICATE relationship: {e}")
-        return False
+            logger.error(f"Error adding EARNS_CERTIFICATE relationship: {e}")
+            return False
     
-    async def add_holds_degree_relationship(self, candidate_id, degree_id):
+    async def add_holds_degree_relationship(self, candidate_id, degree_id, relationship_data=None):
         """
-        Create a relationship between a candidate and a degree.
+        Create a HOLDS_DEGREE relationship between a candidate and a degree.
         
         Args:
             candidate_id: ID of the candidate
             degree_id: ID of the degree
+            relationship_data: Additional data for the relationship
             
         Returns:
             bool: True if successful, False otherwise
         """
-        query = RELATIONSHIPS["HOLDS_DEGREE"]["create_query"]
-        
-        params = {
-            "candidate_id": candidate_id,
-            "degree_id": degree_id
-        }
-        
         try:
+            # Use a custom query that handles null values
+            query = """
+            MATCH (c:Candidate {candidate_id: $candidate_id})
+            MATCH (d:Degree {degree_id: $degree_id})
+            MERGE (c)-[r:HOLDS_DEGREE]->(d)
+            SET r.start_year = $start_year,
+                r.end_year = $end_year,
+                r.academic_performance = $academic_performance,
+                r.education_level = $education_level,
+                r.school_id = $school_id,
+                r.school_name = $school_name,
+                r.additional_info = $additional_info,
+                r.updated_at = datetime()
+            RETURN r
+            """
+            
+            # Set default values if not provided
+            relationship_data = relationship_data or {}
+            
+            params = {
+                "candidate_id": candidate_id,
+                "degree_id": degree_id,
+                "start_year": relationship_data.get("start_year"),
+                "end_year": relationship_data.get("end_year"),
+                "academic_performance": relationship_data.get("academic_performance"),
+                "education_level": relationship_data.get("education_level"),
+                "school_id": relationship_data.get("school_id"),
+                "school_name": relationship_data.get("school_name"),
+                "additional_info": relationship_data.get("additional_info")
+            }
+            
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Added HOLDS_DEGREE relationship: Candidate {candidate_id} -> Degree {degree_id}")
             return True
         except Exception as e:
-            print(f"Error adding HOLDS_DEGREE relationship: {e}")
-        return False
+            logger.error(f"Error adding HOLDS_DEGREE relationship: {e}")
+            return False
     
     async def get_education_history(self, candidate_id):
         """
@@ -344,7 +401,7 @@ class CandidateGraphRepository:
     
     async def add_receives_score_relationship(self, candidate_id, score_id, relationship_data=None):
         """
-        Create a relationship between a candidate and a score.
+        Create a RECEIVES_SCORE relationship between a candidate and a score.
         
         Args:
             candidate_id: ID of the candidate
@@ -354,28 +411,41 @@ class CandidateGraphRepository:
         Returns:
             bool: True if successful, False otherwise
         """
-        query = RELATIONSHIPS["RECEIVES_SCORE"]["create_query"]
-        
-        # Set default values if not provided
-        relationship_data = relationship_data or {}
-        params = {
-            "candidate_id": candidate_id,
-            "score_id": score_id,
-            "exam_id": relationship_data.get("exam_id"),
-            "exam_name": relationship_data.get("exam_name"),
-            "subject_id": relationship_data.get("subject_id"),
-            "subject_name": relationship_data.get("subject_name"),
-            "registration_status": relationship_data.get("registration_status"),
-            "registration_date": relationship_data.get("registration_date"),
-            "is_required": relationship_data.get("is_required", False),
-            "exam_date": relationship_data.get("exam_date")
-        }
-        
         try:
+            # Use a custom query that handles null values
+            query = """
+            MATCH (c:Candidate {candidate_id: $candidate_id})
+            MATCH (s:Score {score_id: $score_id})
+            MERGE (c)-[r:RECEIVES_SCORE]->(s)
+            SET r.exam_id = $exam_id,
+                r.exam_name = $exam_name,
+                r.subject_id = $subject_id,
+                r.subject_name = $subject_name,
+                r.registration_status = $registration_status,
+                r.is_required = $is_required,
+                r.updated_at = datetime()
+            RETURN r
+            """
+            
+            # Set default values if not provided
+            relationship_data = relationship_data or {}
+            
+            params = {
+                "candidate_id": candidate_id,
+                "score_id": score_id,
+                "exam_id": relationship_data.get("exam_id"),
+                "exam_name": relationship_data.get("exam_name"),
+                "subject_id": relationship_data.get("subject_id"),
+                "subject_name": relationship_data.get("subject_name"),
+                "registration_status": relationship_data.get("registration_status"),
+                "is_required": relationship_data.get("is_required")
+            }
+            
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Added RECEIVES_SCORE relationship: Candidate {candidate_id} -> Score {score_id}")
             return True
         except Exception as e:
-            print(f"Error adding RECEIVES_SCORE relationship: {e}")
+            logger.error(f"Error adding RECEIVES_SCORE relationship: {e}")
             return False
     
     async def add_requests_review_relationship(self, candidate_id, review_id):
@@ -405,7 +475,7 @@ class CandidateGraphRepository:
     
     async def add_provides_credential_relationship(self, candidate_id, credential_id):
         """
-        Create a relationship between a candidate and a credential.
+        Create a PROVIDES_CREDENTIAL relationship between a candidate and a credential.
         
         Args:
             candidate_id: ID of the candidate
@@ -414,23 +484,25 @@ class CandidateGraphRepository:
         Returns:
             bool: True if successful, False otherwise
         """
-        query = RELATIONSHIPS["PROVIDES_CREDENTIAL"]["create_query"]
-        
-        params = {
-            "candidate_id": candidate_id,
-            "credential_id": credential_id
-        }
-        
         try:
+            # Use the predefined query from ontology
+            query = RELATIONSHIPS["PROVIDES_CREDENTIAL"]["create_query"]
+            
+            params = {
+                "candidate_id": candidate_id,
+                "credential_id": credential_id
+            }
+            
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Added PROVIDES_CREDENTIAL relationship: Candidate {candidate_id} -> Credential {credential_id}")
             return True
         except Exception as e:
-            print(f"Error adding PROVIDES_CREDENTIAL relationship: {e}")
+            logger.error(f"Error adding PROVIDES_CREDENTIAL relationship: {e}")
             return False
     
     async def add_receives_recognition_relationship(self, candidate_id, recognition_id):
         """
-        Create a relationship between a candidate and a recognition.
+        Create a RECEIVES_RECOGNITION relationship between a candidate and a recognition.
         
         Args:
             candidate_id: ID of the candidate
@@ -439,23 +511,25 @@ class CandidateGraphRepository:
         Returns:
             bool: True if successful, False otherwise
         """
-        query = RELATIONSHIPS["RECEIVES_RECOGNITION"]["create_query"]
-        
-        params = {
-            "candidate_id": candidate_id,
-            "recognition_id": recognition_id
-        }
-        
         try:
+            # Use the predefined query from ontology
+            query = RELATIONSHIPS["RECEIVES_RECOGNITION"]["create_query"]
+            
+            params = {
+                "candidate_id": candidate_id,
+                "recognition_id": recognition_id
+            }
+            
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Added RECEIVES_RECOGNITION relationship: Candidate {candidate_id} -> Recognition {recognition_id}")
             return True
         except Exception as e:
-            print(f"Error adding RECEIVES_RECOGNITION relationship: {e}")
+            logger.error(f"Error adding RECEIVES_RECOGNITION relationship: {e}")
             return False
     
     async def add_earns_award_relationship(self, candidate_id, award_id):
         """
-        Create a relationship between a candidate and an award.
+        Create an EARNS_AWARD relationship between a candidate and an award.
         
         Args:
             candidate_id: ID of the candidate
@@ -464,23 +538,25 @@ class CandidateGraphRepository:
         Returns:
             bool: True if successful, False otherwise
         """
-        query = RELATIONSHIPS["EARNS_AWARD"]["create_query"]
-        
-        params = {
-            "candidate_id": candidate_id,
-            "award_id": award_id
-        }
-        
         try:
+            # Use the predefined query from ontology
+            query = RELATIONSHIPS["EARNS_AWARD"]["create_query"]
+            
+            params = {
+                "candidate_id": candidate_id,
+                "award_id": award_id
+            }
+            
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Added EARNS_AWARD relationship: Candidate {candidate_id} -> Award {award_id}")
             return True
         except Exception as e:
-            print(f"Error adding EARNS_AWARD relationship: {e}")
+            logger.error(f"Error adding EARNS_AWARD relationship: {e}")
             return False
     
     async def add_achieves_relationship(self, candidate_id, achievement_id):
         """
-        Create a relationship between a candidate and an achievement.
+        Create an ACHIEVES relationship between a candidate and an achievement.
         
         Args:
             candidate_id: ID of the candidate
@@ -489,23 +565,25 @@ class CandidateGraphRepository:
         Returns:
             bool: True if successful, False otherwise
         """
-        query = RELATIONSHIPS["ACHIEVES"]["create_query"]
-        
-        params = {
-            "candidate_id": candidate_id,
-            "achievement_id": achievement_id
-        }
-        
         try:
+            # Use the predefined query from ontology
+            query = RELATIONSHIPS["ACHIEVES"]["create_query"]
+            
+            params = {
+                "candidate_id": candidate_id,
+                "achievement_id": achievement_id
+            }
+            
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Added ACHIEVES relationship: Candidate {candidate_id} -> Achievement {achievement_id}")
             return True
         except Exception as e:
-            print(f"Error adding ACHIEVES relationship: {e}")
+            logger.error(f"Error adding ACHIEVES relationship: {e}")
             return False
     
     async def add_studies_major_relationship(self, candidate_id, major_id, relationship_data=None):
         """
-        Create a relationship between a candidate and a major.
+        Create a STUDIES_MAJOR relationship between a candidate and a major.
         
         Args:
             candidate_id: ID of the candidate
@@ -515,32 +593,54 @@ class CandidateGraphRepository:
         Returns:
             bool: True if successful, False otherwise
         """
-        query = RELATIONSHIPS["STUDIES_MAJOR"]["create_query"]
-        
-        # Set default values if not provided
-        relationship_data = relationship_data or {}
-        params = {
-            "candidate_id": candidate_id,
-            "major_id": major_id,
-            "start_year": relationship_data.get("start_year"),
-            "end_year": relationship_data.get("end_year"),
-            "education_level": relationship_data.get("education_level"),
-            "academic_performance": relationship_data.get("academic_performance"),
-            "school_id": relationship_data.get("school_id"),
-            "school_name": relationship_data.get("school_name"),
-            "additional_info": relationship_data.get("additional_info")
-        }
-        
         try:
+            # Use a custom query that handles null values
+            query = """
+            MATCH (c:Candidate {candidate_id: $candidate_id})
+            MATCH (m:Major {major_id: $major_id})
+            MERGE (c)-[r:STUDIES_MAJOR]->(m)
+            SET r.start_year = $start_year,
+                r.end_year = $end_year,
+                r.education_level = $education_level,
+                r.academic_performance = $academic_performance,
+                r.school_id = $school_id,
+                r.school_name = $school_name,
+                r.additional_info = $additional_info,
+                r.updated_at = datetime()
+            RETURN r
+            """
+            
+            # Set default values if not provided
+            relationship_data = relationship_data or {}
+            
+            # Ensure all expected parameters are present to avoid Neo4j error
+            if "academic_performance" not in relationship_data:
+                relationship_data["academic_performance"] = None
+            if "additional_info" not in relationship_data:
+                relationship_data["additional_info"] = None
+                
+            params = {
+                "candidate_id": candidate_id,
+                "major_id": major_id,
+                "start_year": relationship_data.get("start_year"),
+                "end_year": relationship_data.get("end_year"),
+                "education_level": relationship_data.get("education_level"),
+                "academic_performance": relationship_data.get("academic_performance"),
+                "school_id": relationship_data.get("school_id"),
+                "school_name": relationship_data.get("school_name"),
+                "additional_info": relationship_data.get("additional_info")
+            }
+            
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Added STUDIES_MAJOR relationship: Candidate {candidate_id} -> Major {major_id}")
             return True
         except Exception as e:
-            print(f"Error adding STUDIES_MAJOR relationship: {e}")
+            logger.error(f"Error adding STUDIES_MAJOR relationship: {e}")
             return False
     
     async def add_has_exam_schedule_relationship(self, candidate_id, schedule_id, relationship_data=None):
         """
-        Create a relationship between a candidate and an exam schedule.
+        Create a HAS_EXAM_SCHEDULE relationship between a candidate and an exam schedule.
         
         Args:
             candidate_id: ID of the candidate
@@ -550,29 +650,61 @@ class CandidateGraphRepository:
         Returns:
             bool: True if successful, False otherwise
         """
-        query = RELATIONSHIPS["HAS_EXAM_SCHEDULE"]["create_query"]
-        
-        # Set default values if not provided
-        relationship_data = relationship_data or {}
-        params = {
-            "candidate_id": candidate_id,
-            "schedule_id": schedule_id,
-            "exam_id": relationship_data.get("exam_id"),
-            "exam_name": relationship_data.get("exam_name"),
-            "subject_id": relationship_data.get("subject_id"),
-            "subject_name": relationship_data.get("subject_name"),
-            "registration_status": relationship_data.get("registration_status"),
-            "registration_date": relationship_data.get("registration_date"),
-            "is_required": relationship_data.get("is_required", False),
-            "room_id": relationship_data.get("room_id"),
-            "room_name": relationship_data.get("room_name"),
-            "seat_number": relationship_data.get("seat_number"),
-            "assignment_date": relationship_data.get("assignment_date")
-        }
-        
         try:
+            # Use a custom query that handles null values
+            query = """
+            MATCH (c:Candidate {candidate_id: $candidate_id})
+            MATCH (s:ExamSchedule {schedule_id: $schedule_id})
+            MERGE (c)-[r:HAS_EXAM_SCHEDULE]->(s)
+            SET r.exam_id = $exam_id,
+                r.exam_name = $exam_name,
+                r.subject_id = $subject_id,
+                r.subject_name = $subject_name,
+                r.registration_status = $registration_status,
+                r.registration_date = $registration_date,
+                r.is_required = $is_required,
+                r.room_id = $room_id,
+                r.room_name = $room_name,
+                r.seat_number = $seat_number,
+                r.assignment_date = $assignment_date,
+                r.updated_at = datetime()
+            RETURN r
+            """
+            
+            # Set default values if not provided
+            relationship_data = relationship_data or {}
+            
+            # Set defaults for optional parameters
+            if "registration_status" not in relationship_data:
+                relationship_data["registration_status"] = None
+            if "registration_date" not in relationship_data:
+                relationship_data["registration_date"] = None
+            if "is_required" not in relationship_data:
+                relationship_data["is_required"] = None
+            if "seat_number" not in relationship_data:
+                relationship_data["seat_number"] = None
+            if "assignment_date" not in relationship_data:
+                relationship_data["assignment_date"] = None
+            
+            params = {
+                "candidate_id": candidate_id,
+                "schedule_id": schedule_id,
+                "exam_id": relationship_data.get("exam_id"),
+                "exam_name": relationship_data.get("exam_name"),
+                "subject_id": relationship_data.get("subject_id"),
+                "subject_name": relationship_data.get("subject_name"),
+                "registration_status": relationship_data.get("registration_status"),
+                "registration_date": relationship_data.get("registration_date"),
+                "is_required": relationship_data.get("is_required"),
+                "room_id": relationship_data.get("room_id"),
+                "room_name": relationship_data.get("room_name"),
+                "seat_number": relationship_data.get("seat_number"),
+                "assignment_date": relationship_data.get("assignment_date")
+            }
+            
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Added HAS_EXAM_SCHEDULE relationship: Candidate {candidate_id} -> ExamSchedule {schedule_id}")
             return True
         except Exception as e:
-            print(f"Error adding HAS_EXAM_SCHEDULE relationship: {e}")
+            logger.error(f"Error adding HAS_EXAM_SCHEDULE relationship: {e}")
             return False 

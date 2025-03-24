@@ -215,20 +215,43 @@ class ExamGraphRepository:
         Returns:
             True if successful, False otherwise
         """
-        query = RELATIONSHIPS["ORGANIZED_BY"]["create_query"]
-        
-        # Set default values if not provided
-        relationship_data = relationship_data or {}
-        params = {
-            "exam_id": exam_id,
-            "unit_id": unit_id,
-            "is_primary": relationship_data.get("is_primary", True),
-            "organization_date": relationship_data.get("organization_date"),
-            "role": relationship_data.get("role", "Primary"),
-            "status": relationship_data.get("status", "Active")
-        }
-        
         try:
+            # Use a custom query that handles null values
+            query = """
+            MATCH (e:Exam {exam_id: $exam_id})
+            MATCH (m:ManagementUnit {unit_id: $unit_id})
+            MERGE (e)-[r:ORGANIZED_BY]->(m)
+            """
+            
+            # Set default values if not provided
+            relationship_data = relationship_data or {}
+            
+            # Thiết lập các thuộc tính cơ bản
+            params = {
+                "exam_id": exam_id,
+                "unit_id": unit_id,
+                "is_primary": relationship_data.get("is_primary", True),
+                "role": relationship_data.get("role", "Primary"),
+                "status": relationship_data.get("status", "Active")
+            }
+            
+            # Tạo phần SET động dựa trên những thuộc tính có giá trị
+            set_clause = """
+            SET r.is_primary = $is_primary,
+                r.role = $role,
+                r.status = $status,
+                r.updated_at = datetime()
+            """
+            
+            # Thêm organization_date vào SET clause chỉ khi nó không null
+            organization_date = relationship_data.get("organization_date")
+            if organization_date is not None:
+                set_clause += ", r.organization_date = $organization_date"
+                params["organization_date"] = organization_date
+            
+            # Hoàn thiện truy vấn
+            query += set_clause + " RETURN r"
+            
             await self.neo4j.execute_query(query, params)
             logger.info(f"Added ORGANIZED_BY relationship between exam {exam_id} and unit {unit_id}")
             return True

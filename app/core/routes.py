@@ -11,7 +11,7 @@ import logging
 
 # Explicit imports for clarity and to avoid importing any unintended routers
 from app.api.controllers.candidate_router import router as candidate_router
-from app.api.controllers.admin_router import router as admin_router
+from app.api.controllers.admin_router import router as admin_router, auth_router as admin_auth_router
 from app.api.controllers.health_router import router as health_router
 from app.api.controllers.management_unit_router import router as management_unit_router
 from app.api.controllers.school_router import router as school_router
@@ -82,6 +82,7 @@ def setup_routes(app: FastAPI):
     # Define a list of tuples with (router, tag) pairs instead of using a dictionary
     router_tags = [
         (admin_router, "Admin"),
+        (admin_auth_router, "Admin Authentication"),
         (candidate_router, "Candidates"),
         (management_unit_router, "Management Units"),
         (school_router, "Schools"),

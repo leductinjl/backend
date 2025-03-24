@@ -1,13 +1,13 @@
 """
-Base Sync Service module.
+Base Sync Service Module.
 
-This module provides the BaseSyncService abstract class which serves as the foundation for all
-synchronization services that transfer data between PostgreSQL and Neo4j.
+This module provides the abstract BaseSyncService class that defines
+the interface for synchronization services between PostgreSQL and Neo4j.
 """
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Union, TypeVar, Generic
+from typing import Any, Dict, List, Optional, Union, TypeVar, Generic, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from neo4j import AsyncDriver
@@ -49,12 +49,13 @@ class BaseSyncService(ABC):
         self.graph_repository = graph_repository
     
     @abstractmethod
-    async def sync_by_id(self, entity_id: str) -> bool:
+    async def sync_by_id(self, entity_id: str, skip_relationships: bool = False) -> bool:
         """
         Synchronize a single entity by ID.
         
         Args:
             entity_id: ID of the entity to sync
+            skip_relationships: If True, only sync node without its relationships
             
         Returns:
             bool: True if sync successful, False otherwise
@@ -62,31 +63,48 @@ class BaseSyncService(ABC):
         pass
     
     @abstractmethod
-    async def sync_all(self, limit: Optional[int] = None, offset: int = 0) -> Dict[str, Any]:
+    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
         """
         Synchronize all entities of a specific type.
         
         Args:
             limit: Optional maximum number of entities to sync
-            offset: Number of entities to skip from the beginning
+            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Dictionary with sync results
+            Tuple of (success_count, failed_count) or dict with success/failed counts
         """
         pass
     
     @abstractmethod
-    def _convert_to_node(self, entity: Any) -> Any:
+    def _convert_to_node(self, sql_model: Any) -> Any:
         """
-        Convert SQL model to Neo4j node model.
+        Convert SQL model to Neo4j node.
         
         Args:
-            entity: SQL model instance
+            sql_model: SQL model instance
             
         Returns:
-            Neo4j node instance
+            Graph node instance
         """
         pass
+    
+    @abstractmethod
+    async def sync_relationships(self, entity_id: str) -> Dict[str, int]:
+        """
+        Synchronize all relationships for a specific entity.
+        
+        This is a default implementation that returns an empty result.
+        Override this method in subclasses that need to synchronize relationships.
+        
+        Args:
+            entity_id: ID of the entity to synchronize relationships for
+            
+        Returns:
+            Dictionary with counts of successfully synced relationships by type
+        """
+        logging.getLogger(__name__).info(f"No relationship synchronization implemented for entity ID: {entity_id}")
+        return {}
     
     def _log_sync_result(self, entity_type: str, success_count: int, failure_count: int, total_count: int) -> None:
         """

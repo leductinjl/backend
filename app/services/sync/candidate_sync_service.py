@@ -6,13 +6,24 @@ between PostgreSQL and Neo4j.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from neo4j import AsyncDriver
 
 from app.services.sync.base_sync_service import BaseSyncService
 from app.repositories.candidate_repository import CandidateRepository
+from app.repositories.candidate_exam_repository import CandidateExamRepository
+from app.repositories.education_history_repository import EducationHistoryRepository
+from app.repositories.exam_score_repository import ExamScoreRepository
+from app.repositories.certificate_repository import CertificateRepository
+from app.repositories.candidate_credential_repository import CandidateCredentialRepository
+from app.repositories.degree_repository import DegreeRepository
+from app.repositories.award_repository import AwardRepository
+from app.repositories.achievement_repository import AchievementRepository
+from app.repositories.recognition_repository import RecognitionRepository
+from app.repositories.candidate_exam_subject_repository import CandidateExamSubjectRepository
+from app.repositories.exam_schedule_repository import ExamScheduleRepository
 from app.graph_repositories.candidate_graph_repository import CandidateGraphRepository
 from app.domain.graph_models.candidate_node import CandidateNode
 from app.domain.models.candidate import Candidate
@@ -50,111 +61,326 @@ class CandidateSyncService(BaseSyncService):
         self.sql_repository = sql_repository or CandidateRepository(db_session)
         self.graph_repository = graph_repository or CandidateGraphRepository(neo4j_driver)
     
-    async def sync_by_id(self, candidate_id: str) -> bool:
+        # Additional repositories for relationships
+        self.candidate_exam_repository = CandidateExamRepository(db_session)
+        self.education_history_repository = EducationHistoryRepository(db_session)
+        self.exam_score_repository = ExamScoreRepository(db_session)
+        self.certificate_repository = None  # Will be lazily initialized if needed
+        self.credential_repository = None   # Will be lazily initialized if needed
+        self.degree_repository = None       # Will be lazily initialized if needed
+        self.award_repository = None        # Will be lazily initialized if needed
+        self.achievement_repository = None  # Will be lazily initialized if needed
+        self.recognition_repository = None  # Will be lazily initialized if needed
+        self.candidate_exam_subject_repository = None  # Will be lazily initialized if needed
+        self.exam_schedule_repository = None  # Will be lazily initialized if needed
+    
+    async def sync_by_id(self, candidate_id: str, skip_relationships: bool = False) -> bool:
         """
-        Synchronize a single candidate by ID.
+        Synchronize a specific candidate by ID.
         
         Args:
-            candidate_id: ID of the candidate to sync
+            candidate_id: The ID of the candidate to sync
+            skip_relationships: If True, only sync node without its relationships
             
         Returns:
-            bool: True if sync successful, False otherwise
+            True if sync was successful, False otherwise
         """
+        logger.info(f"Synchronizing candidate {candidate_id} (skip_relationships={skip_relationships})")
+        
         try:
             # Get candidate from SQL database with personal info
             candidate = await self.sql_repository.get_by_id_with_personal_info(candidate_id)
-            
             if not candidate:
-                logger.warning(f"Candidate with ID {candidate_id} not found in SQL database")
+                logger.error(f"Candidate {candidate_id} not found in SQL database")
                 return False
             
-            # Convert to node
-            candidate_node = self._convert_to_node(candidate)
+            # Convert to Neo4j format
+            neo4j_data = self._convert_to_node(candidate)
             
-            # Create or update in Neo4j
-            result = await self.graph_repository.create_or_update(candidate_node)
+            # Create or update node in Neo4j
+            await self.graph_repository.create_or_update(neo4j_data)
             
-            if result:
-                logger.info(f"Successfully synchronized candidate {candidate_id}")
-                return True
-            else:
-                logger.error(f"Failed to synchronize candidate {candidate_id}")
-                return False
+            # Sync relationships if needed
+            if not skip_relationships:
+                await self.sync_relationships(candidate_id)
+            
+            return True
                 
         except Exception as e:
-            logger.error(f"Error synchronizing candidate {candidate_id}: {str(e)}", exc_info=True)
+            logger.error(f"Error syncing candidate {candidate_id}: {e}")
             return False
     
-    async def sync_all(self, limit: Optional[int] = None, offset: int = 0) -> Dict[str, Any]:
+    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
         """
-        Synchronize all candidates from PostgreSQL to Neo4j.
+        Synchronize all candidates.
         
         Args:
-            limit: Optional maximum number of candidates to sync
-            offset: Number of candidates to skip from the beginning
+            limit: Optional limit on number of candidates to sync
+            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Dictionary with sync results
+            Tuple of (success_count, failed_count) or dict with success/failed counts
         """
-        total_count = 0
-        success_count = 0
-        failure_count = 0
+        logger.info(f"Synchronizing all candidates (skip_relationships={skip_relationships})")
         
         try:
             # Get all candidates from SQL database with personal info
-            candidates = await self.sql_repository.get_all(skip=offset, limit=limit, include_personal_info=True)
-            total_count = len(candidates)
+            candidates = await self.sql_repository.get_all(limit=limit, include_personal_info=True)
+            if isinstance(candidates, tuple) and len(candidates) == 2:
+                candidates, _ = candidates
             
-            # Sync each candidate
+            success_count = 0
+            failed_count = 0
+            
             for candidate in candidates:
-                if await self.sync_by_id(candidate.candidate_id):
+                try:
+                    # Sync the candidate node
+                    await self.sync_by_id(candidate.candidate_id, skip_relationships=skip_relationships)
                     success_count += 1
-                else:
-                    failure_count += 1
+                except Exception as e:
+                    logger.error(f"Error syncing candidate {candidate.candidate_id}: {e}")
+                    failed_count += 1
             
-            # Log results
-            self._log_sync_result("Candidate", success_count, failure_count, total_count)
+            return (success_count, failed_count)
             
-            return {
-                "total": total_count,
-                "success": success_count,
-                "failed": failure_count
-            }
         except Exception as e:
-            logger.error(f"Error synchronizing candidates: {str(e)}", exc_info=True)
-            return {
-                "total": total_count,
-                "success": success_count,
-                "failed": failure_count,
-                "error": str(e)
-            }
+            logger.error(f"Error during candidate synchronization: {e}")
+            return {"success": 0, "failed": 0}
+    
+    async def sync_relationships(self, candidate_id: str) -> Dict[str, int]:
+        """
+        Synchronize all relationships for a specific candidate.
+        
+        This method establishes connections between a candidate and:
+        1. Credentials, certificates, awards, achievements, recognitions
+        2. Majors, schools, degrees
+        3. Exams
+        4. Exam schedules, scores, subjects
+        
+        Args:
+            candidate_id: ID of the candidate
+            
+        Returns:
+            Dictionary with counts of successfully synced relationships by type
+        """
+        results = {
+            "schools": 0,
+            "majors": 0,
+            "degrees": 0,
+            "exams": 0,
+            "scores": 0,
+            "schedules": 0,
+            "certificates": 0,
+            "credentials": 0,
+            "awards": 0,
+            "achievements": 0,
+            "recognitions": 0
+        }
+        
+        try:
+            # 1. Sync education histories (schools and majors)
+            education_histories, _ = await self.education_history_repository.get_by_candidate(candidate_id)
+            for history in education_histories:
+                # Add STUDIES_AT relationship to school
+                school_rel_data = {
+                    "start_year": history.start_year,
+                    "end_year": history.end_year,
+                    "education_level": history.education_level.name if history.education_level else None,
+                    "academic_performance": history.academic_performance,
+                    "additional_info": history.additional_info
+                }
+                if await self.graph_repository.add_studies_at_relationship(
+                    candidate_id, history.school_id, school_rel_data
+                ):
+                    results["schools"] += 1
+                
+                # Sync major relationships if available
+                if hasattr(history, "school") and hasattr(history.school, "majors"):
+                    for major in history.school.majors:
+                        major_rel_data = {
+                            "start_year": history.start_year,
+                            "end_year": history.end_year,
+                            "education_level": history.education_level.name if history.education_level else None,
+                            "academic_performance": history.academic_performance,
+                            "additional_info": history.additional_info,
+                            "school_id": history.school_id,
+                            "school_name": history.school.school_name if history.school else None
+                        }
+                        if await self.graph_repository.add_studies_major_relationship(
+                            candidate_id, major.major_id, major_rel_data
+                        ):
+                            results["majors"] += 1
+            
+            # 2. Sync degrees
+            if not self.degree_repository:
+                from app.repositories.degree_repository import DegreeRepository
+                self.degree_repository = DegreeRepository(self.db_session)
+                
+            degrees, total_degrees = await self.degree_repository.get_by_candidate(candidate_id)
+            for degree in degrees:
+                if await self.graph_repository.add_holds_degree_relationship(
+                    candidate_id, degree.degree_id
+                ):
+                    results["degrees"] += 1
+            
+            # 3. Sync exam relationships
+            exam_registrations = await self.candidate_exam_repository.get_by_candidate_id(candidate_id)
+            for registration in exam_registrations:
+                # Add ATTENDS_EXAM relationship
+                exam_rel_data = {
+                    "registration_number": registration["registration_number"],
+                    "registration_date": registration["registration_date"],
+                    "status": registration["status"]
+                }
+                if await self.graph_repository.add_attends_exam_relationship(
+                    candidate_id, registration["exam_id"], exam_rel_data
+                ):
+                    results["exams"] += 1
+            
+            # 4. Sync scores
+            scores = await self.exam_score_repository.get_by_candidate_id(candidate_id)
+            for score in scores:
+                score_rel_data = {
+                    "exam_id": score["exam_id"],
+                    "exam_name": score["exam_name"],
+                    "subject_id": score["subject_id"],
+                    "subject_name": score["subject_name"],
+                    "registration_status": "REGISTERED",
+                    "is_required": True
+                }
+                if await self.graph_repository.add_receives_score_relationship(
+                    candidate_id, score["exam_score_id"], score_rel_data
+                ):
+                    results["scores"] += 1
+            
+            # 5. Sync exam schedules
+            if not self.exam_schedule_repository:
+                from app.repositories.exam_schedule_repository import ExamScheduleRepository
+                self.exam_schedule_repository = ExamScheduleRepository(self.db_session)
+                
+            schedules = await self.exam_schedule_repository.get_by_candidate_id(candidate_id)
+            for schedule in schedules:
+                schedule_rel_data = {
+                    "exam_id": schedule["exam_id"],
+                    "exam_name": schedule["exam_name"],
+                    "subject_id": schedule["subject_id"],
+                    "subject_name": schedule["subject_name"],
+                    "room_id": schedule["room_id"],
+                    "room_name": schedule["room_name"]
+                }
+                if await self.graph_repository.add_has_exam_schedule_relationship(
+                    candidate_id, schedule["schedule_id"], schedule_rel_data
+                ):
+                    results["schedules"] += 1
+            
+            # 6. Sync certificates
+            if not self.certificate_repository:
+                from app.repositories.certificate_repository import CertificateRepository
+                self.certificate_repository = CertificateRepository(self.db_session)
+                
+            certificates = await self.certificate_repository.get_by_candidate_id(candidate_id)
+            for certificate in certificates:
+                if await self.graph_repository.add_earns_certificate_relationship(
+                    candidate_id, certificate["certificate_id"]
+                ):
+                    results["certificates"] += 1
+            
+            # 7. Sync credentials
+            if not self.credential_repository:
+                self.credential_repository = CandidateCredentialRepository(self.db_session)
+                
+            credentials = await self.credential_repository.get_by_candidate_id(candidate_id)
+            for credential in credentials:
+                if await self.graph_repository.add_provides_credential_relationship(
+                    candidate_id, credential["credential_id"]
+                ):
+                    results["credentials"] += 1
+            
+            # 8. Sync awards
+            if not self.award_repository:
+                from app.repositories.award_repository import AwardRepository
+                self.award_repository = AwardRepository(self.db_session)
+                
+            awards = await self.award_repository.get_by_candidate_id(candidate_id)
+            for award in awards:
+                if await self.graph_repository.add_earns_award_relationship(
+                    candidate_id, award["award_id"]
+                ):
+                    results["awards"] += 1
+            
+            # 9. Sync achievements
+            if not self.achievement_repository:
+                from app.repositories.achievement_repository import AchievementRepository
+                self.achievement_repository = AchievementRepository(self.db_session)
+                
+            achievements = await self.achievement_repository.get_by_candidate_id(candidate_id)
+            for achievement in achievements:
+                if await self.graph_repository.add_achieves_relationship(
+                    candidate_id, achievement["achievement_id"]
+                ):
+                    results["achievements"] += 1
+            
+            # 10. Sync recognitions
+            if not self.recognition_repository:
+                from app.repositories.recognition_repository import RecognitionRepository
+                self.recognition_repository = RecognitionRepository(self.db_session)
+                
+            recognitions = await self.recognition_repository.get_by_candidate_id(candidate_id)
+            for recognition in recognitions:
+                if await self.graph_repository.add_receives_recognition_relationship(
+                    candidate_id, recognition["recognition_id"]
+                ):
+                    results["recognitions"] += 1
+                    
+            logger.info(f"Synchronized all relationships for candidate {candidate_id}: {results}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error synchronizing relationships for candidate {candidate_id}: {str(e)}", exc_info=True)
+            return results
     
     def _convert_to_node(self, candidate: Candidate) -> CandidateNode:
         """
         Convert SQL Candidate model to CandidateNode.
         
         Args:
-            candidate: SQL Candidate model instance with personal_info
+            candidate: SQL Candidate model instance
             
         Returns:
             CandidateNode instance
         """
         try:
-            # Create node using the from_sql_model method
-            personal_info = getattr(candidate, "personal_info", None)
-            
-            candidate_node = CandidateNode.from_sql_model(
-                candidate_model=candidate,
-                personal_info_model=personal_info
+            # Create a basic node with the available data
+            # Avoid accessing lazy-loaded relationships that would trigger database queries
+            candidate_node = CandidateNode(
+                candidate_id=candidate.candidate_id,
+                full_name=candidate.full_name
             )
             
-            if not candidate_node:
-                # If conversion failed, create a basic node with just the ID and name
-                logger.warning(f"Failed to convert using from_sql_model for {candidate.candidate_id}, creating basic node")
-                candidate_node = CandidateNode(
-                    candidate_id=candidate.candidate_id,
-                    full_name=candidate.full_name
-                )
+            # Xử lý personal_info nếu được tải như một dictionary
+            if isinstance(candidate, dict) and "personal_info" in candidate:
+                personal_info = candidate["personal_info"]
+                if personal_info:
+                    candidate_node.birth_date = personal_info.get("birth_date")
+                    candidate_node.id_number = personal_info.get("id_number")
+                    candidate_node.phone_number = personal_info.get("phone_number")
+                    candidate_node.email = personal_info.get("email")
+                    candidate_node.address = personal_info.get("primary_address")
+                    candidate_node.id_card_image_url = personal_info.get("id_card_image_url")
+                    candidate_node.candidate_card_image_url = personal_info.get("candidate_card_image_url")
+                    candidate_node.face_recognition_data_url = personal_info.get("face_recognition_data_url")
+            # Xử lý personal_info khi nó là một relationship đã được eager load
+            elif hasattr(candidate, "personal_info") and candidate.personal_info is not None:
+                # Đã tải personal_info thông qua eager loading
+                personal_info = candidate.personal_info
+                candidate_node.birth_date = personal_info.birth_date
+                candidate_node.id_number = personal_info.id_number
+                candidate_node.phone_number = personal_info.phone_number
+                candidate_node.email = personal_info.email
+                candidate_node.address = personal_info.primary_address
+                candidate_node.id_card_image_url = personal_info.id_card_image_url
+                candidate_node.candidate_card_image_url = personal_info.candidate_card_image_url
+                candidate_node.face_recognition_data_url = personal_info.face_recognition_data_url
             
             return candidate_node
             

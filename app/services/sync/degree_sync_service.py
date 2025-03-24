@@ -6,7 +6,7 @@ data between PostgreSQL and Neo4j.
 """
 
 import logging
-from typing import Optional, Tuple, List, Dict, Any
+from typing import Optional, Tuple, List, Dict, Any, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -50,71 +50,84 @@ class DegreeSyncService(BaseSyncService):
         self.degree_repository = degree_repository or DegreeRepository(session)
         self.degree_graph_repository = degree_graph_repository or DegreeGraphRepository(driver)
     
-    async def sync_by_id(self, degree_id: str) -> bool:
+    async def sync_by_id(self, degree_id: str, skip_relationships: bool = False) -> bool:
         """
-        Synchronize a single degree by ID.
+        Synchronize a specific degree by ID.
         
         Args:
-            degree_id: ID of the degree to synchronize
+            degree_id: The ID of the degree to sync
+            skip_relationships: If True, only sync node without its relationships
             
         Returns:
-            True if synchronization was successful, False otherwise
+            True if sync was successful, False otherwise
         """
+        logger.info(f"Synchronizing degree {degree_id} (skip_relationships={skip_relationships})")
+        
         try:
-            # Get degree from SQL database with details
+            # Get degree from SQL database
             degree = await self.degree_repository.get_by_id(degree_id)
             if not degree:
-                logger.warning(f"Degree with ID {degree_id} not found in SQL database")
+                logger.error(f"Degree {degree_id} not found in SQL database")
                 return False
             
-            # Convert to Neo4j node and save
-            degree_node = self._convert_to_node(degree)
-            result = await self.degree_graph_repository.create_or_update(degree_node)
+            # Convert to Neo4j format
+            neo4j_data = self._convert_to_node(degree)
             
-            if result:
-                logger.info(f"Successfully synchronized degree {degree_id}")
-                return True
-            else:
-                logger.error(f"Failed to synchronize degree {degree_id}")
-                return False
+            # Create or update node in Neo4j
+            await self.degree_graph_repository.create_or_update(neo4j_data)
+            
+            # Sync relationships if needed
+            if not skip_relationships:
+                await self.sync_relationships(degree_id)
+            
+            return True
             
         except Exception as e:
-            logger.error(f"Error synchronizing degree {degree_id}: {str(e)}")
+            logger.error(f"Error syncing degree {degree_id}: {e}")
             return False
     
-    async def sync_all(self, limit: Optional[int] = None, offset: int = 0) -> Tuple[int, int]:
+    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
         """
-        Synchronize all degrees from PostgreSQL to Neo4j.
+        Synchronize all degrees.
         
         Args:
-            limit: Optional maximum number of degrees to synchronize
-            offset: Optional offset for pagination
+            limit: Optional limit on number of degrees to sync
+            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Tuple containing counts of (successful, failed) synchronizations
+            Tuple of (success_count, failed_count) or dict with success/failed counts
         """
-        success_count = 0
-        failure_count = 0
+        logger.info(f"Synchronizing all degrees (skip_relationships={skip_relationships})")
         
         try:
-            # Get all degrees from SQL database with details
-            degrees, total = await self.degree_repository.get_all(skip=offset, limit=limit)
+            # Get all degrees from SQL database
+            degrees, _ = await self.degree_repository.get_all(limit=limit)
             
-            logger.info(f"Found {total} degrees to synchronize")
+            success_count = 0
+            failed_count = 0
             
-            # Synchronize each degree
             for degree in degrees:
-                if await self.sync_by_id(degree.degree_id):
+                try:
+                    # Sync the degree node - handle both ORM objects and dictionaries
+                    degree_id = degree.degree_id if hasattr(degree, 'degree_id') else degree.get("degree_id")
+                    if not degree_id:
+                        logger.error(f"Missing degree_id in degree object: {degree}")
+                        failed_count += 1
+                        continue
+                        
+                    await self.sync_by_id(degree_id, skip_relationships=skip_relationships)
                     success_count += 1
-                else:
-                    failure_count += 1
-                    
-            logger.info(f"Degree synchronization complete. Success: {success_count}, Failed: {failure_count}")
+                except Exception as e:
+                    # Get degree_id safely for logging
+                    degree_id = getattr(degree, 'degree_id', None) if hasattr(degree, 'degree_id') else degree.get("degree_id", "unknown")
+                    logger.error(f"Error syncing degree {degree_id}: {e}")
+                    failed_count += 1
+            
+            return (success_count, failed_count)
             
         except Exception as e:
-            logger.error(f"Error during degree synchronization: {str(e)}")
-        
-        return success_count, failure_count
+            logger.error(f"Error during degree synchronization: {e}")
+            return {"success": 0, "failed": 0}
     
     def _convert_to_node(self, degree: Degree) -> DegreeNode:
         """
@@ -168,4 +181,69 @@ class DegreeSyncService(BaseSyncService):
             return DegreeNode(
                 degree_id=degree.degree_id,
                 degree_name=f"Degree {degree.degree_id}"
-            ) 
+            )
+            
+    async def sync_relationships(self, degree_id: str) -> Dict[str, int]:
+        """
+        Synchronize relationships for a specific degree.
+        
+        Args:
+            degree_id: ID of the degree to synchronize relationships for
+            
+        Returns:
+            Dictionary with counts of successfully synced relationships by type
+        """
+        logger.info(f"Synchronizing relationships for degree {degree_id}")
+        
+        relationship_counts = {
+            "candidate": 0,
+            "school": 0,
+            "major": 0
+        }
+        
+        try:
+            # Get degree from SQL database with full details
+            degree = await self.degree_repository.get_by_id(degree_id)
+            if not degree:
+                logger.error(f"Degree {degree_id} not found in SQL database")
+                return relationship_counts
+            
+            # Extract candidate_id if possible
+            candidate_id = None
+            if hasattr(degree, 'education_history') and degree.education_history:
+                if hasattr(degree.education_history, 'candidate_id'):
+                    candidate_id = degree.education_history.candidate_id
+            
+            # Sync EARNED_BY relationship (degree-candidate)
+            if candidate_id:
+                success = await self.degree_graph_repository.add_earned_by_relationship(degree_id, candidate_id)
+                if success:
+                    relationship_counts["candidate"] += 1
+            
+            # Extract school_id if possible
+            school_id = None
+            if hasattr(degree, 'education_history') and degree.education_history:
+                if hasattr(degree.education_history, 'school_id'):
+                    school_id = degree.education_history.school_id
+            
+            # Sync FROM_SCHOOL relationship (degree-school)
+            if school_id:
+                success = await self.degree_graph_repository.add_from_school_relationship(degree_id, school_id)
+                if success:
+                    relationship_counts["school"] += 1
+            
+            # Extract major_id
+            major_id = degree.major_id
+            
+            # Sync IN_MAJOR relationship (degree-major)
+            if major_id:
+                success = await self.degree_graph_repository.add_in_major_relationship(degree_id, major_id)
+                if success:
+                    relationship_counts["major"] += 1
+            
+            logger.info(f"Degree relationship synchronization completed for {degree_id}")
+            return relationship_counts
+            
+        except Exception as e:
+            logger.error(f"Error synchronizing relationships for degree {degree_id}: {e}")
+            return relationship_counts 

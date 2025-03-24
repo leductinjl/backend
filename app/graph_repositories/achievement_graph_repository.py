@@ -248,6 +248,7 @@ class AchievementGraphRepository:
         RETURN a
         LIMIT $limit
         """
+        
         params = {"limit": limit}
         
         try:
@@ -261,4 +262,66 @@ class AchievementGraphRepository:
             return achievements
         except Exception as e:
             print(f"Error getting all achievements: {e}")
-            return [] 
+            return []
+
+    async def add_earned_by_relationship(self, achievement_id, candidate_id):
+        """
+        Create a relationship between an achievement and a candidate.
+        
+        Args:
+            achievement_id: ID of the achievement
+            candidate_id: ID of the candidate
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            query = """
+            MATCH (a:Achievement {achievement_id: $achievement_id})
+            MATCH (c:Candidate {candidate_id: $candidate_id})
+            MERGE (c)-[r:ACHIEVES]->(a)
+            RETURN r
+            """
+            
+            params = {
+                "achievement_id": achievement_id,
+                "candidate_id": candidate_id
+            }
+            
+            await self.neo4j.execute_query(query, params)
+            print(f"Added ACHIEVES relationship between Candidate {candidate_id} and Achievement {achievement_id}")
+            return True
+        except Exception as e:
+            print(f"Error adding ACHIEVES relationship: {e}")
+            return False
+
+    async def add_for_exam_relationship(self, achievement_id, exam_id):
+        """
+        Create a relationship between an achievement and an exam.
+        
+        Args:
+            achievement_id: ID of the achievement
+            exam_id: ID of the exam
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            query = """
+            MATCH (a:Achievement {achievement_id: $achievement_id})
+            MATCH (e:Exam {exam_id: $exam_id})
+            MERGE (a)-[r:ACHIEVEMENT_FOR_EXAM]->(e)
+            RETURN r
+            """
+            
+            params = {
+                "achievement_id": achievement_id,
+                "exam_id": exam_id
+            }
+            
+            await self.neo4j.execute_query(query, params)
+            print(f"Added ACHIEVEMENT_FOR_EXAM relationship between Achievement {achievement_id} and Exam {exam_id}")
+            return True
+        except Exception as e:
+            print(f"Error adding ACHIEVEMENT_FOR_EXAM relationship: {e}")
+            return False 

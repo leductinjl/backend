@@ -139,7 +139,7 @@ class SchoolGraphRepository:
             "major_id": major_id,
             "start_year": start_year,
             "is_active": True,
-            "additional_info": None
+            "additional_info": "{}"
         }
         
         try:

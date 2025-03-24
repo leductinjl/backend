@@ -248,6 +248,7 @@ class DegreeGraphRepository:
         RETURN d
         LIMIT $limit
         """
+        
         params = {"limit": limit}
         
         try:
@@ -261,4 +262,97 @@ class DegreeGraphRepository:
             return degrees
         except Exception as e:
             print(f"Error getting all degrees: {e}")
-            return [] 
+            return []
+
+    async def add_earned_by_relationship(self, degree_id, candidate_id):
+        """
+        Create a relationship between a degree and a candidate.
+        
+        Args:
+            degree_id: ID of the degree
+            candidate_id: ID of the candidate
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            query = """
+            MATCH (d:Degree {degree_id: $degree_id})
+            MATCH (c:Candidate {candidate_id: $candidate_id})
+            MERGE (c)-[r:HOLDS_DEGREE]->(d)
+            RETURN r
+            """
+            
+            params = {
+                "degree_id": degree_id,
+                "candidate_id": candidate_id
+            }
+            
+            await self.neo4j.execute_query(query, params)
+            print(f"Added HOLDS_DEGREE relationship between Candidate {candidate_id} and Degree {degree_id}")
+            return True
+        except Exception as e:
+            print(f"Error adding HOLDS_DEGREE relationship: {e}")
+            return False
+
+    async def add_from_school_relationship(self, degree_id, school_id):
+        """
+        Create a relationship between a degree and a school.
+        
+        Args:
+            degree_id: ID of the degree
+            school_id: ID of the school
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            query = """
+            MATCH (d:Degree {degree_id: $degree_id})
+            MATCH (s:School {school_id: $school_id})
+            MERGE (d)-[r:ISSUED_BY]->(s)
+            RETURN r
+            """
+            
+            params = {
+                "degree_id": degree_id,
+                "school_id": school_id
+            }
+            
+            await self.neo4j.execute_query(query, params)
+            print(f"Added ISSUED_BY relationship between Degree {degree_id} and School {school_id}")
+            return True
+        except Exception as e:
+            print(f"Error adding ISSUED_BY relationship: {e}")
+            return False
+
+    async def add_in_major_relationship(self, degree_id, major_id):
+        """
+        Create a relationship between a degree and a major.
+        
+        Args:
+            degree_id: ID of the degree
+            major_id: ID of the major
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            query = """
+            MATCH (d:Degree {degree_id: $degree_id})
+            MATCH (m:Major {major_id: $major_id})
+            MERGE (d)-[r:RELATED_TO]->(m)
+            RETURN r
+            """
+            
+            params = {
+                "degree_id": degree_id,
+                "major_id": major_id
+            }
+            
+            await self.neo4j.execute_query(query, params)
+            print(f"Added RELATED_TO relationship between Degree {degree_id} and Major {major_id}")
+            return True
+        except Exception as e:
+            print(f"Error adding RELATED_TO relationship: {e}")
+            return False 

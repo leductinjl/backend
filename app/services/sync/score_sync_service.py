@@ -6,7 +6,7 @@ data between PostgreSQL and Neo4j.
 """
 
 import logging
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from neo4j import AsyncDriver
@@ -50,82 +50,84 @@ class ScoreSyncService(BaseSyncService):
         self.sql_repository = score_repository or ExamScoreRepository(session)
         self.graph_repository = score_graph_repository or ScoreGraphRepository(driver)
     
-    async def sync_by_id(self, score_id: str) -> bool:
+    async def sync_by_id(self, score_id: str, skip_relationships: bool = False) -> bool:
         """
-        Synchronize a single score by ID.
+        Synchronize a specific score by ID.
         
         Args:
-            score_id: ID of the score to synchronize
+            score_id: The ID of the score to sync
+            skip_relationships: If True, only sync node without its relationships
             
         Returns:
-            True if synchronization was successful, False otherwise
+            True if sync was successful, False otherwise
         """
+        logger.info(f"Synchronizing score {score_id} (skip_relationships={skip_relationships})")
+        
         try:
             # Get score from SQL database
             score = await self.sql_repository.get_by_id(score_id)
             if not score:
-                logger.warning(f"Score with ID {score_id} not found in SQL database")
+                logger.error(f"Score {score_id} not found in SQL database")
                 return False
             
-            # Convert to Neo4j node and save
-            score_node = self._convert_to_node(score)
-            result = await self.graph_repository.create_or_update(score_node)
+            # Convert to Neo4j format
+            neo4j_data = self._convert_to_node(score)
             
-            if result:
-                logger.info(f"Successfully synchronized score {score_id}")
-                return True
-            else:
-                logger.error(f"Failed to synchronize score {score_id}")
-                return False
+            # Create or update node in Neo4j
+            await self.graph_repository.create_or_update(neo4j_data)
+            
+            # Sync relationships if needed
+            if not skip_relationships:
+                await self.sync_relationships(score_id)
+            
+            return True
             
         except Exception as e:
-            logger.error(f"Error synchronizing score {score_id}: {str(e)}")
+            logger.error(f"Error syncing score {score_id}: {e}")
             return False
     
-    async def sync_all(self, limit: Optional[int] = None, offset: int = 0) -> Tuple[int, int]:
+    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
         """
-        Synchronize all scores from PostgreSQL to Neo4j.
+        Synchronize all scores.
         
         Args:
-            limit: Optional maximum number of scores to synchronize
-            offset: Optional offset for pagination
+            limit: Optional limit on number of scores to sync
+            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Tuple containing counts of (successful, failed) synchronizations
+            Tuple of (success_count, failed_count) or dict with success/failed counts
         """
-        success_count = 0
-        failure_count = 0
+        logger.info(f"Synchronizing all scores (skip_relationships={skip_relationships})")
         
         try:
-            # Get all scores from SQL database with pagination
-            scores, total = await self.sql_repository.get_all(skip=offset, limit=limit or 100)
+            # Get all scores from SQL database
+            scores, _ = await self.sql_repository.get_all(limit=limit)
             
-            # Track processed score IDs to avoid duplicates
-            processed_score_ids = set()
-            unique_scores = []
+            success_count = 0
+            failed_count = 0
             
-            # Filter out duplicate scores
             for score in scores:
-                score_id = score["exam_score_id"]
-                if score_id not in processed_score_ids:
-                    processed_score_ids.add(score_id)
-                    unique_scores.append(score)
-            
-            logger.info(f"Found {len(unique_scores)} unique scores to synchronize from {total} total records")
-            
-            # Synchronize each unique score
-            for score in unique_scores:
-                if await self.sync_by_id(score["exam_score_id"]):
+                try:
+                    # Sync the score node - handle both ORM objects and dictionaries
+                    score_id = score.score_id if hasattr(score, 'score_id') else score.get("score_id")
+                    if not score_id:
+                        logger.error(f"Missing score_id in score object: {score}")
+                        failed_count += 1
+                        continue
+                        
+                    await self.sync_by_id(score_id, skip_relationships=skip_relationships)
                     success_count += 1
-                else:
-                    failure_count += 1
-                    
-            logger.info(f"Score synchronization complete. Success: {success_count}, Failed: {failure_count}")
+                except Exception as e:
+                    # Get score_id safely for logging
+                    score_id = getattr(score, 'score_id', None) if hasattr(score, 'score_id') else score.get("score_id", "unknown")
+                    logger.error(f"Error syncing score {score_id}: {e}")
+                    failed_count += 1
+            
+            return (success_count, failed_count)
             
         except Exception as e:
-            logger.error(f"Error during score synchronization: {str(e)}")
-        
-        return success_count, failure_count
+            logger.error(f"Error during score synchronization: {e}")
+            return {"success": 0, "failed": 0}
     
     def _convert_to_node(self, score_data: Dict[str, Any]) -> ScoreNode:
         """
@@ -180,4 +182,58 @@ class ScoreSyncService(BaseSyncService):
             # Return a basic node with just the ID as fallback
             return ScoreNode(
                 score_id=score_data["exam_score_id"]
-            ) 
+            )
+    
+    async def sync_relationships(self, score_id: str) -> Dict[str, int]:
+        """
+        Synchronize relationships for a specific score.
+        
+        Args:
+            score_id: ID of the score to synchronize relationships for
+            
+        Returns:
+            Dictionary with counts of successfully synced relationships by type
+        """
+        logger.info(f"Synchronizing relationships for score {score_id}")
+        
+        relationship_counts = {
+            "candidate": 0,
+            "exam": 0,
+            "subject": 0,
+            "reviews": 0
+        }
+        
+        try:
+            # Get score from SQL database with full details
+            score = await self.sql_repository.get_by_id(score_id)
+            if not score:
+                logger.error(f"Score {score_id} not found in SQL database")
+                return relationship_counts
+            
+            # Sync ACHIEVED_BY relationship (score-candidate)
+            if score.get("candidate_id"):
+                candidate_id = score["candidate_id"]
+                success = await self.graph_repository.add_achieved_by_relationship(score_id, candidate_id)
+                if success:
+                    relationship_counts["candidate"] += 1
+            
+            # Sync FOR_EXAM relationship (score-exam)
+            if score.get("exam_id"):
+                exam_id = score["exam_id"]
+                success = await self.graph_repository.add_for_exam_relationship(score_id, exam_id)
+                if success:
+                    relationship_counts["exam"] += 1
+            
+            # Sync FOR_SUBJECT relationship (score-subject)
+            if score.get("subject_id"):
+                subject_id = score["subject_id"]
+                success = await self.graph_repository.add_for_subject_relationship(score_id, subject_id)
+                if success:
+                    relationship_counts["subject"] += 1
+            
+            logger.info(f"Score relationship synchronization completed for {score_id}")
+            return relationship_counts
+            
+        except Exception as e:
+            logger.error(f"Error synchronizing relationships for score {score_id}: {e}")
+            return relationship_counts 

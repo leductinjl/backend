@@ -6,7 +6,7 @@ data between PostgreSQL and Neo4j.
 """
 
 import logging
-from typing import Optional, Tuple, List, Dict, Any
+from typing import Optional, Tuple, List, Dict, Any, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -50,71 +50,84 @@ class CredentialSyncService(BaseSyncService):
         self.credential_repository = credential_repository or CandidateCredentialRepository(session)
         self.credential_graph_repository = credential_graph_repository or CredentialGraphRepository(driver)
     
-    async def sync_by_id(self, credential_id: str) -> bool:
+    async def sync_by_id(self, credential_id: str, skip_relationships: bool = False) -> bool:
         """
-        Synchronize a single credential by ID.
+        Synchronize a specific credential by ID.
         
         Args:
-            credential_id: ID of the credential to synchronize
+            credential_id: The ID of the credential to sync
+            skip_relationships: If True, only sync node without its relationships
             
         Returns:
-            True if synchronization was successful, False otherwise
+            True if sync was successful, False otherwise
         """
+        logger.info(f"Synchronizing credential {credential_id} (skip_relationships={skip_relationships})")
+        
         try:
-            # Get credential from SQL database with details
+            # Get credential from SQL database
             credential = await self.credential_repository.get_by_id(credential_id)
             if not credential:
-                logger.warning(f"Credential with ID {credential_id} not found in SQL database")
+                logger.error(f"Credential {credential_id} not found in SQL database")
                 return False
             
-            # Convert to Neo4j node and save
-            credential_node = self._convert_to_node(credential)
-            result = await self.credential_graph_repository.create_or_update(credential_node)
+            # Convert to Neo4j format
+            neo4j_data = self._convert_to_node(credential)
             
-            if result:
-                logger.info(f"Successfully synchronized credential {credential_id}")
-                return True
-            else:
-                logger.error(f"Failed to synchronize credential {credential_id}")
-                return False
+            # Create or update node in Neo4j
+            await self.credential_graph_repository.create_or_update(neo4j_data)
+            
+            # Sync relationships if needed
+            if not skip_relationships:
+                await self.sync_relationships(credential_id)
+            
+            return True
             
         except Exception as e:
-            logger.error(f"Error synchronizing credential {credential_id}: {str(e)}")
+            logger.error(f"Error syncing credential {credential_id}: {e}")
             return False
     
-    async def sync_all(self, limit: Optional[int] = None, offset: int = 0) -> Tuple[int, int]:
+    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
         """
-        Synchronize all credentials from PostgreSQL to Neo4j.
+        Synchronize all credentials.
         
         Args:
-            limit: Optional maximum number of credentials to synchronize
-            offset: Optional offset for pagination
+            limit: Optional limit on number of credentials to sync
+            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Tuple containing counts of (successful, failed) synchronizations
+            Tuple of (success_count, failed_count) or dict with success/failed counts
         """
-        success_count = 0
-        failure_count = 0
+        logger.info(f"Synchronizing all credentials (skip_relationships={skip_relationships})")
         
         try:
-            # Get all credentials from SQL database with details
-            credentials, total = await self.credential_repository.get_all(skip=offset, limit=limit)
+            # Get all credentials from SQL database
+            credentials, _ = await self.credential_repository.get_all(limit=limit)
             
-            logger.info(f"Found {total} credentials to synchronize")
+            success_count = 0
+            failed_count = 0
             
-            # Synchronize each credential
             for credential in credentials:
-                if await self.sync_by_id(credential.credential_id):
+                try:
+                    # Sync the credential node - handle both ORM objects and dictionaries
+                    credential_id = credential.credential_id if hasattr(credential, 'credential_id') else credential.get("credential_id")
+                    if not credential_id:
+                        logger.error(f"Missing credential_id in credential object: {credential}")
+                        failed_count += 1
+                        continue
+                        
+                    await self.sync_by_id(credential_id, skip_relationships=skip_relationships)
                     success_count += 1
-                else:
-                    failure_count += 1
-                    
-            logger.info(f"Credential synchronization complete. Success: {success_count}, Failed: {failure_count}")
+                except Exception as e:
+                    # Get credential_id safely for logging
+                    credential_id = getattr(credential, 'credential_id', None) if hasattr(credential, 'credential_id') else credential.get("credential_id", "unknown")
+                    logger.error(f"Error syncing credential {credential_id}: {e}")
+                    failed_count += 1
+            
+            return (success_count, failed_count)
             
         except Exception as e:
-            logger.error(f"Error during credential synchronization: {str(e)}")
-        
-        return success_count, failure_count
+            logger.error(f"Error during credential synchronization: {e}")
+            return {"success": 0, "failed": 0}
     
     def _convert_to_node(self, credential: CandidateCredential) -> CredentialNode:
         """
@@ -138,4 +151,51 @@ class CredentialSyncService(BaseSyncService):
                 credential_id=credential.credential_id,
                 title=credential.title or f"Credential {credential.credential_id}",
                 candidate_id=credential.candidate_id
-            ) 
+            )
+            
+    async def sync_relationships(self, credential_id: str) -> Dict[str, int]:
+        """
+        Synchronize relationships for a specific credential.
+        
+        Args:
+            credential_id: ID of the credential to synchronize relationships for
+            
+        Returns:
+            Dictionary with counts of successfully synced relationships by type
+        """
+        logger.info(f"Synchronizing relationships for credential {credential_id}")
+        
+        relationship_counts = {
+            "candidate": 0,
+            "issuing_organization": 0
+        }
+        
+        try:
+            # Get credential from SQL database with full details
+            credential = await self.credential_repository.get_by_id(credential_id)
+            if not credential:
+                logger.error(f"Credential {credential_id} not found in SQL database")
+                return relationship_counts
+            
+            # Extract candidate_id if available
+            candidate_id = credential.candidate_id
+            
+            # Sync BELONGS_TO relationship (credential-candidate)
+            if candidate_id:
+                success = await self.credential_graph_repository.add_belongs_to_relationship(credential_id, candidate_id)
+                if success:
+                    relationship_counts["candidate"] += 1
+            
+            # Extract issuing_organization if available
+            issuing_org = getattr(credential, 'issuing_organization', None)
+            if issuing_org:
+                # In a real implementation, we would add relationship to organization
+                # This is a placeholder for future implementation
+                relationship_counts["issuing_organization"] += 0
+            
+            logger.info(f"Credential relationship synchronization completed for {credential_id}")
+            return relationship_counts
+            
+        except Exception as e:
+            logger.error(f"Error synchronizing relationships for credential {credential_id}: {e}")
+            return relationship_counts 

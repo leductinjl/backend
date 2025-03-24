@@ -6,7 +6,7 @@ data between PostgreSQL and Neo4j.
 """
 
 import logging
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from neo4j import AsyncDriver
@@ -50,71 +50,84 @@ class ScoreReviewSyncService(BaseSyncService):
         self.sql_repository = score_review_repository or ScoreReviewRepository(session)
         self.graph_repository = score_review_graph_repository or ScoreReviewGraphRepository(driver)
     
-    async def sync_by_id(self, score_review_id: str) -> bool:
+    async def sync_by_id(self, review_id: str, skip_relationships: bool = False) -> bool:
         """
-        Synchronize a single score review by ID.
+        Synchronize a specific score review by ID.
         
         Args:
-            score_review_id: ID of the score review to synchronize
+            review_id: The ID of the score review to sync
+            skip_relationships: If True, only sync node without its relationships
             
         Returns:
-            True if synchronization was successful, False otherwise
+            True if sync was successful, False otherwise
         """
+        logger.info(f"Synchronizing score review {review_id} (skip_relationships={skip_relationships})")
+        
         try:
             # Get score review from SQL database
-            score_review = await self.sql_repository.get_by_id(score_review_id)
-            if not score_review:
-                logger.warning(f"ScoreReview with ID {score_review_id} not found in SQL database")
+            review = await self.sql_repository.get_by_id(review_id)
+            if not review:
+                logger.error(f"Score review {review_id} not found in SQL database")
                 return False
             
-            # Convert to Neo4j node and save
-            score_review_node = self._convert_to_node(score_review)
-            result = await self.graph_repository.create_or_update(score_review_node)
+            # Convert to Neo4j format
+            neo4j_data = self._convert_to_node(review)
             
-            if result:
-                logger.info(f"Successfully synchronized score review {score_review_id}")
-                return True
-            else:
-                logger.error(f"Failed to synchronize score review {score_review_id}")
-                return False
+            # Create or update node in Neo4j
+            await self.graph_repository.create_or_update(neo4j_data)
+            
+            # Sync relationships if needed
+            if not skip_relationships:
+                await self.sync_relationships(review_id)
+            
+            return True
             
         except Exception as e:
-            logger.error(f"Error synchronizing score review {score_review_id}: {str(e)}")
+            logger.error(f"Error syncing score review {review_id}: {e}")
             return False
     
-    async def sync_all(self, limit: Optional[int] = None, offset: int = 0) -> Tuple[int, int]:
+    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
         """
-        Synchronize all score reviews from PostgreSQL to Neo4j.
+        Synchronize all score reviews.
         
         Args:
-            limit: Optional maximum number of score reviews to synchronize
-            offset: Optional offset for pagination
+            limit: Optional limit on number of score reviews to sync
+            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Tuple containing counts of (successful, failed) synchronizations
+            Tuple of (success_count, failed_count) or dict with success/failed counts
         """
-        success_count = 0
-        failure_count = 0
+        logger.info(f"Synchronizing all score reviews (skip_relationships={skip_relationships})")
         
         try:
-            # Get all score reviews from SQL database with pagination
-            score_reviews, total = await self.sql_repository.get_all(skip=offset, limit=limit or 100)
+            # Get all score reviews from SQL database
+            reviews, _ = await self.sql_repository.get_all(limit=limit)
             
-            logger.info(f"Found {total} score reviews to synchronize")
+            success_count = 0
+            failed_count = 0
             
-            # Synchronize each score review
-            for score_review in score_reviews:
-                if await self.sync_by_id(score_review["score_review_id"]):
+            for review in reviews:
+                try:
+                    # Sync the review node - handle both ORM objects and dictionaries
+                    review_id = review.review_id if hasattr(review, 'review_id') else review.get("review_id")
+                    if not review_id:
+                        logger.error(f"Missing review_id in review object: {review}")
+                        failed_count += 1
+                        continue
+                        
+                    await self.sync_by_id(review_id, skip_relationships=skip_relationships)
                     success_count += 1
-                else:
-                    failure_count += 1
-                    
-            logger.info(f"Score review synchronization complete. Success: {success_count}, Failed: {failure_count}")
+                except Exception as e:
+                    # Get review_id safely for logging
+                    review_id = getattr(review, 'review_id', None) if hasattr(review, 'review_id') else review.get("review_id", "unknown")
+                    logger.error(f"Error syncing review {review_id}: {e}")
+                    failed_count += 1
+            
+            return (success_count, failed_count)
             
         except Exception as e:
-            logger.error(f"Error during score review synchronization: {str(e)}")
-        
-        return success_count, failure_count
+            logger.error(f"Error during score review synchronization: {e}")
+            return {"success": 0, "failed": 0}
     
     def _convert_to_node(self, score_review_data: Dict[str, Any]) -> ScoreReviewNode:
         """
@@ -179,4 +192,58 @@ class ScoreReviewSyncService(BaseSyncService):
             return ScoreReviewNode(
                 review_id=score_review_data["score_review_id"],
                 review_name=f"Score Review {score_review_data['score_review_id']}"
-            ) 
+            )
+
+    async def sync_relationships(self, review_id: str) -> Dict[str, int]:
+        """
+        Synchronize relationships for a specific score review.
+        
+        Args:
+            review_id: ID of the score review to synchronize relationships for
+            
+        Returns:
+            Dictionary with counts of successfully synced relationships by type
+        """
+        logger.info(f"Synchronizing relationships for score review {review_id}")
+        
+        relationship_counts = {
+            "score": 0,
+            "candidate": 0,
+            "subject": 0,
+            "exam": 0
+        }
+        
+        try:
+            # Get score review from SQL database with full details
+            review = await self.sql_repository.get_by_id(review_id)
+            if not review:
+                logger.error(f"Score review {review_id} not found in SQL database")
+                return relationship_counts
+            
+            # Sync FOR_SCORE relationship (review-score)
+            if review.get("score_id"):
+                score_id = review["score_id"]
+                success = await self.graph_repository.add_for_score_relationship(review_id, score_id)
+                if success:
+                    relationship_counts["score"] += 1
+            
+            # Sync REQUESTED_BY relationship (review-candidate)
+            if review.get("candidate_id"):
+                candidate_id = review["candidate_id"]
+                success = await self.graph_repository.add_requested_by_relationship(review_id, candidate_id)
+                if success:
+                    relationship_counts["candidate"] += 1
+            
+            # Sync FOR_SUBJECT relationship if we have subject data
+            if review.get("subject_id"):
+                subject_id = review["subject_id"]
+                success = await self.graph_repository.add_for_subject_relationship(review_id, subject_id)
+                if success:
+                    relationship_counts["subject"] += 1
+            
+            logger.info(f"Score review relationship synchronization completed for {review_id}")
+            return relationship_counts
+            
+        except Exception as e:
+            logger.error(f"Error synchronizing relationships for score review {review_id}: {e}")
+            return relationship_counts 

@@ -227,4 +227,66 @@ class CredentialGraphRepository:
             return credentials
         except Exception as e:
             print(f"Error getting all credentials: {e}")
-            return [] 
+            return []
+
+    async def add_belongs_to_relationship(self, credential_id, candidate_id):
+        """
+        Create a relationship between a credential and a candidate.
+        
+        Args:
+            credential_id: ID of the credential
+            candidate_id: ID of the candidate
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            query = """
+            MATCH (cred:Credential {credential_id: $credential_id})
+            MATCH (cand:Candidate {candidate_id: $candidate_id})
+            MERGE (cand)-[r:PROVIDES_CREDENTIAL]->(cred)
+            RETURN r
+            """
+            
+            params = {
+                "credential_id": credential_id,
+                "candidate_id": candidate_id
+            }
+            
+            await self.neo4j.execute_query(query, params)
+            print(f"Added PROVIDES_CREDENTIAL relationship between Candidate {candidate_id} and Credential {credential_id}")
+            return True
+        except Exception as e:
+            print(f"Error adding PROVIDES_CREDENTIAL relationship: {e}")
+            return False
+
+    async def add_issued_by_relationship(self, credential_id, organization_id):
+        """
+        Create a relationship between a credential and an organization.
+        
+        Args:
+            credential_id: ID of the credential
+            organization_id: ID of the organization
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            query = """
+            MATCH (cred:Credential {credential_id: $credential_id})
+            MATCH (org:Organization {organization_id: $organization_id})
+            MERGE (cred)-[r:ISSUED_BY]->(org)
+            RETURN r
+            """
+            
+            params = {
+                "credential_id": credential_id,
+                "organization_id": organization_id
+            }
+            
+            await self.neo4j.execute_query(query, params)
+            print(f"Added ISSUED_BY relationship between Credential {credential_id} and Organization {organization_id}")
+            return True
+        except Exception as e:
+            print(f"Error adding ISSUED_BY relationship: {e}")
+            return False 

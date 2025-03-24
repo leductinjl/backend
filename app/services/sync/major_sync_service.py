@@ -6,7 +6,7 @@ data between PostgreSQL and Neo4j.
 """
 
 import logging
-from typing import Optional, Tuple, List, Dict, Any
+from typing import Optional, Tuple, List, Dict, Any, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from neo4j import AsyncDriver
@@ -49,71 +49,84 @@ class MajorSyncService(BaseSyncService):
         self.sql_repository = major_repository or MajorRepository(session)
         self.graph_repository = major_graph_repository or MajorGraphRepository(driver)
     
-    async def sync_by_id(self, major_id: str) -> bool:
+    async def sync_by_id(self, major_id: str, skip_relationships: bool = False) -> bool:
         """
-        Synchronize a single major by ID.
+        Synchronize a specific major by ID.
         
         Args:
-            major_id: ID of the major to synchronize
+            major_id: The ID of the major to sync
+            skip_relationships: If True, only sync node without its relationships
             
         Returns:
-            True if synchronization was successful, False otherwise
+            True if sync was successful, False otherwise
         """
+        logger.info(f"Synchronizing major {major_id} (skip_relationships={skip_relationships})")
+        
         try:
             # Get major from SQL database
             major = await self.sql_repository.get_by_id(major_id)
             if not major:
-                logger.warning(f"Major with ID {major_id} not found in SQL database")
+                logger.error(f"Major {major_id} not found in SQL database")
                 return False
             
-            # Convert to Neo4j node and save
-            major_node = self._convert_to_node(major)
-            result = await self.graph_repository.create_or_update(major_node)
+            # Convert to Neo4j format
+            neo4j_data = self._convert_to_node(major)
             
-            if result:
-                logger.info(f"Successfully synchronized major {major_id}")
-                return True
-            else:
-                logger.error(f"Failed to synchronize major {major_id}")
-                return False
+            # Create or update node in Neo4j
+            await self.graph_repository.create_or_update(neo4j_data)
+            
+            # Sync relationships if needed
+            if not skip_relationships:
+                await self.sync_relationships(major_id)
+            
+            return True
             
         except Exception as e:
-            logger.error(f"Error synchronizing major {major_id}: {str(e)}")
+            logger.error(f"Error syncing major {major_id}: {e}")
             return False
     
-    async def sync_all(self, limit: Optional[int] = None, offset: int = 0) -> Tuple[int, int]:
+    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
         """
-        Synchronize all majors from PostgreSQL to Neo4j.
+        Synchronize all majors.
         
         Args:
-            limit: Optional maximum number of majors to synchronize
-            offset: Optional offset for pagination
+            limit: Optional limit on number of majors to sync
+            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Tuple containing counts of (successful, failed) synchronizations
+            Tuple of (success_count, failed_count) or dict with success/failed counts
         """
-        success_count = 0
-        failure_count = 0
+        logger.info(f"Synchronizing all majors (skip_relationships={skip_relationships})")
         
         try:
             # Get all majors from SQL database
-            majors, total = await self.sql_repository.get_all(skip=offset, limit=limit or 100)
+            majors, _ = await self.sql_repository.get_all(limit=limit)
             
-            logger.info(f"Found {total} majors to synchronize")
+            success_count = 0
+            failed_count = 0
             
-            # Synchronize each major
             for major in majors:
-                if await self.sync_by_id(major.major_id):
+                try:
+                    # Sync the major node - handle both ORM objects and dictionaries
+                    major_id = major.major_id if hasattr(major, 'major_id') else major.get("major_id")
+                    if not major_id:
+                        logger.error(f"Missing major_id in major object: {major}")
+                        failed_count += 1
+                        continue
+                        
+                    await self.sync_by_id(major_id, skip_relationships=skip_relationships)
                     success_count += 1
-                else:
-                    failure_count += 1
-                    
-            logger.info(f"Major synchronization complete. Success: {success_count}, Failed: {failure_count}")
+                except Exception as e:
+                    # Get major_id safely for logging
+                    major_id = getattr(major, 'major_id', None) if hasattr(major, 'major_id') else major.get("major_id", "unknown")
+                    logger.error(f"Error syncing major {major_id}: {e}")
+                    failed_count += 1
+            
+            return (success_count, failed_count)
             
         except Exception as e:
-            logger.error(f"Error during major synchronization: {str(e)}")
-        
-        return success_count, failure_count
+            logger.error(f"Error during major synchronization: {e}")
+            return {"success": 0, "failed": 0}
     
     def _convert_to_node(self, major: Major) -> MajorNode:
         """
@@ -136,4 +149,55 @@ class MajorSyncService(BaseSyncService):
             return MajorNode(
                 major_id=major.major_id,
                 major_name=major.major_name
-            ) 
+            )
+            
+    async def sync_relationships(self, major_id: str) -> Dict[str, int]:
+        """
+        Synchronize relationships for a specific major.
+        
+        Args:
+            major_id: ID of the major to synchronize relationships for
+            
+        Returns:
+            Dictionary with counts of successfully synced relationships by type
+        """
+        logger.info(f"Synchronizing relationships for major {major_id}")
+        
+        relationship_counts = {
+            "schools": 0,
+            "degrees": 0
+        }
+        
+        try:
+            # Get major from SQL database with full details
+            major = await self.sql_repository.get_by_id(major_id)
+            if not major:
+                logger.error(f"Major {major_id} not found in SQL database")
+                return relationship_counts
+            
+            # Sync OFFERED_BY relationships (major-school)
+            if hasattr(major, 'school_majors') and major.school_majors:
+                for school_major in major.school_majors:
+                    if hasattr(school_major, 'school_id') and school_major.school_id:
+                        success = await self.graph_repository.add_offered_by_relationship(
+                            major_id, 
+                            school_major.school_id,
+                            school_major.start_year
+                        )
+                        if success:
+                            relationship_counts["schools"] += 1
+            
+            # Sync HAS_MAJOR relationships (degree-major)
+            if hasattr(major, 'degrees') and major.degrees:
+                for degree in major.degrees:
+                    degree_id = degree.degree_id
+                    success = await self.graph_repository.add_has_major_relationship(degree_id, major_id)
+                    if success:
+                        relationship_counts["degrees"] += 1
+            
+            logger.info(f"Major relationship synchronization completed for {major_id}")
+            return relationship_counts
+            
+        except Exception as e:
+            logger.error(f"Error synchronizing relationships for major {major_id}: {e}")
+            return relationship_counts 
