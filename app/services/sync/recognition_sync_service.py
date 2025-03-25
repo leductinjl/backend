@@ -32,8 +32,8 @@ class RecognitionSyncService(BaseSyncService):
         self,
         session: AsyncSession,
         driver: AsyncDriver,
-        recognition_repository: Optional[RecognitionRepository] = None,
-        recognition_graph_repository: Optional[RecognitionGraphRepository] = None
+        sql_repository: Optional[RecognitionRepository] = None,
+        graph_repository: Optional[RecognitionGraphRepository] = None
     ):
         """
         Initialize the RecognitionSyncService.
@@ -41,26 +41,26 @@ class RecognitionSyncService(BaseSyncService):
         Args:
             session: SQLAlchemy async session
             driver: Neo4j async driver
-            recognition_repository: Optional RecognitionRepository instance
-            recognition_graph_repository: Optional RecognitionGraphRepository instance
+            sql_repository: Optional RecognitionRepository instance
+            graph_repository: Optional RecognitionGraphRepository instance
         """
+        super().__init__(session, driver, sql_repository, graph_repository)
         self.db_session = session
         self.neo4j_driver = driver
-        self.sql_repository = recognition_repository or RecognitionRepository(session)
-        self.graph_repository = recognition_graph_repository or RecognitionGraphRepository(driver)
+        self.sql_repository = sql_repository or RecognitionRepository(session)
+        self.graph_repository = graph_repository or RecognitionGraphRepository(driver)
     
-    async def sync_by_id(self, recognition_id: str, skip_relationships: bool = False) -> bool:
+    async def sync_node_by_id(self, recognition_id: str) -> bool:
         """
-        Synchronize a specific recognition by ID.
+        Synchronize a specific recognition node by ID, only creating the node and INSTANCE_OF relationship.
         
         Args:
             recognition_id: The ID of the recognition to sync
-            skip_relationships: If True, only sync node without its relationships
             
         Returns:
             True if sync was successful, False otherwise
         """
-        logger.info(f"Synchronizing recognition {recognition_id} (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing recognition node {recognition_id}")
         
         try:
             # Get recognition from SQL database
@@ -73,30 +73,26 @@ class RecognitionSyncService(BaseSyncService):
             neo4j_data = self._convert_to_node(recognition)
             
             # Create or update node in Neo4j
-            await self.graph_repository.create_or_update(neo4j_data)
+            result = await self.graph_repository.create_or_update(neo4j_data)
             
-            # Sync relationships if needed
-            if not skip_relationships:
-                await self.sync_relationships(recognition_id)
-            
-            return True
+            logger.info(f"Successfully synchronized recognition node {recognition_id}")
+            return result
             
         except Exception as e:
-            logger.error(f"Error syncing recognition {recognition_id}: {e}")
+            logger.error(f"Error syncing recognition node {recognition_id}: {e}")
             return False
     
-    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
+    async def sync_all_nodes(self, limit: Optional[int] = None) -> Tuple[int, int]:
         """
-        Synchronize all recognitions.
+        Synchronize all recognition nodes, without their relationships (except INSTANCE_OF).
         
         Args:
             limit: Optional limit on number of recognitions to sync
-            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Tuple of (success_count, failed_count) or dict with success/failed counts
+            Tuple of (success_count, failed_count)
         """
-        logger.info(f"Synchronizing all recognitions (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing all recognition nodes (limit={limit})")
         
         try:
             # Get all recognitions from SQL database
@@ -107,26 +103,29 @@ class RecognitionSyncService(BaseSyncService):
             
             for recognition in recognitions:
                 try:
-                    # Sync the recognition node - handle both ORM objects and dictionaries
+                    # Sync only the recognition node - handle both ORM objects and dictionaries
                     recognition_id = recognition.recognition_id if hasattr(recognition, 'recognition_id') else recognition.get("recognition_id")
                     if not recognition_id:
                         logger.error(f"Missing recognition_id in recognition object: {recognition}")
                         failed_count += 1
                         continue
                         
-                    await self.sync_by_id(recognition_id, skip_relationships=skip_relationships)
-                    success_count += 1
+                    if await self.sync_node_by_id(recognition_id):
+                        success_count += 1
+                    else:
+                        failed_count += 1
                 except Exception as e:
                     # Get recognition_id safely for logging
                     recognition_id = getattr(recognition, 'recognition_id', None) if hasattr(recognition, 'recognition_id') else recognition.get("recognition_id", "unknown")
-                    logger.error(f"Error syncing recognition {recognition_id}: {e}")
+                    logger.error(f"Error syncing recognition node {recognition_id}: {e}")
                     failed_count += 1
             
+            logger.info(f"Completed synchronizing recognition nodes: {success_count} successful, {failed_count} failed")
             return (success_count, failed_count)
             
         except Exception as e:
-            logger.error(f"Error during recognition synchronization: {e}")
-            return {"success": 0, "failed": 0}
+            logger.error(f"Error during recognition nodes synchronization: {e}")
+            return (0, 0)
     
     def _convert_to_node(self, recognition: Recognition) -> RecognitionNode:
         """
@@ -152,7 +151,7 @@ class RecognitionSyncService(BaseSyncService):
                 recognition_name=recognition_name
             )
             
-    async def sync_relationships(self, recognition_id: str) -> Dict[str, int]:
+    async def sync_relationship_by_id(self, recognition_id: str) -> Dict[str, int]:
         """
         Synchronize relationships for a specific recognition.
         
@@ -163,6 +162,17 @@ class RecognitionSyncService(BaseSyncService):
             Dictionary with counts of successfully synced relationships by type
         """
         logger.info(f"Synchronizing relationships for recognition {recognition_id}")
+        
+        # Check if recognition node exists before syncing relationships
+        recognition_node = await self.graph_repository.get_by_id(recognition_id)
+        if not recognition_node:
+            logger.warning(f"Recognition node {recognition_id} not found in Neo4j, skipping relationship sync")
+            return {
+                "error": "Recognition node not found in Neo4j",
+                "candidate": 0,
+                "award": 0,
+                "organization": 0
+            }
         
         relationship_counts = {
             "candidate": 0,
@@ -202,9 +212,90 @@ class RecognitionSyncService(BaseSyncService):
                 # This is a placeholder for future implementation
                 relationship_counts["organization"] += 0
             
-            logger.info(f"Recognition relationship synchronization completed for {recognition_id}")
+            logger.info(f"Recognition relationship synchronization completed for {recognition_id}: {relationship_counts}")
             return relationship_counts
             
         except Exception as e:
             logger.error(f"Error synchronizing relationships for recognition {recognition_id}: {e}")
-            return relationship_counts 
+            return relationship_counts
+    
+    async def sync_all_relationships(self, limit: Optional[int] = None) -> Dict[str, int]:
+        """
+        Synchronize relationships for all recognitions.
+        
+        Args:
+            limit: Optional maximum number of recognitions to process
+            
+        Returns:
+            Dictionary with counts of synced relationships by type
+        """
+        logger.info(f"Synchronizing relationships for all recognitions (limit={limit})")
+        
+        try:
+            # Get all recognitions from SQL database
+            recognitions, total_count = await self.sql_repository.get_all(limit=limit)
+            
+            total_recognitions = len(recognitions)
+            success_count = 0
+            failure_count = 0
+            
+            # Aggregated counts for all relationship types
+            relationship_counts = {
+                "candidate": 0,
+                "award": 0,
+                "organization": 0
+            }
+            
+            # For each recognition, sync relationships
+            for recognition in recognitions:
+                try:
+                    # Get recognition_id safely - handle both ORM objects and dictionaries
+                    recognition_id = recognition.recognition_id if hasattr(recognition, 'recognition_id') else recognition.get("recognition_id")
+                    if not recognition_id:
+                        logger.error(f"Missing recognition_id in recognition object: {recognition}")
+                        failure_count += 1
+                        continue
+                    
+                    # Verify recognition exists in Neo4j
+                    recognition_node = await self.graph_repository.get_by_id(recognition_id)
+                    if not recognition_node:
+                        logger.warning(f"Recognition {recognition_id} not found in Neo4j, skipping relationship sync")
+                        failure_count += 1
+                        continue
+                    
+                    # Sync relationships for this recognition
+                    results = await self.sync_relationship_by_id(recognition_id)
+                    
+                    # Update aggregated counts
+                    for key, value in results.items():
+                        if key in relationship_counts:
+                            relationship_counts[key] += value
+                    
+                    success_count += 1
+                    
+                except Exception as e:
+                    # Get recognition_id safely for logging
+                    recognition_id = getattr(recognition, 'recognition_id', None) if hasattr(recognition, 'recognition_id') else recognition.get("recognition_id", "unknown")
+                    logger.error(f"Error synchronizing relationships for recognition {recognition_id}: {e}")
+                    failure_count += 1
+            
+            # Prepare final result
+            result = {
+                "total_recognitions": total_recognitions,
+                "success": success_count,
+                "failed": failure_count,
+                "relationships": relationship_counts
+            }
+            
+            logger.info(f"Completed synchronizing relationships for all recognitions: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during recognition relationships synchronization: {e}")
+            return {
+                "total_recognitions": 0,
+                "success": 0,
+                "failed": 0,
+                "error": str(e),
+                "relationships": {}
+            } 

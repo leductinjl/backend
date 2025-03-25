@@ -50,18 +50,17 @@ class AchievementSyncService(BaseSyncService):
         self.sql_repository = sql_repository or AchievementRepository(db_session)
         self.graph_repository = graph_repository or AchievementGraphRepository(neo4j_driver)
     
-    async def sync_by_id(self, achievement_id: str, skip_relationships: bool = False) -> bool:
+    async def sync_node_by_id(self, achievement_id: str) -> bool:
         """
-        Synchronize a specific achievement by ID.
+        Synchronize a specific achievement node by ID, only creating the node and INSTANCE_OF relationship.
         
         Args:
             achievement_id: The ID of the achievement to sync
-            skip_relationships: If True, only sync node without its relationships
             
         Returns:
             True if sync was successful, False otherwise
         """
-        logger.info(f"Synchronizing achievement {achievement_id} (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing achievement node {achievement_id}")
         
         try:
             # Get achievement from SQL database
@@ -74,30 +73,26 @@ class AchievementSyncService(BaseSyncService):
             neo4j_data = self._convert_to_node(achievement)
             
             # Create or update node in Neo4j
-            await self.graph_repository.create_or_update(neo4j_data)
+            result = await self.graph_repository.create_or_update(neo4j_data)
             
-            # Sync relationships if needed
-            if not skip_relationships:
-                await self.sync_relationships(achievement_id)
-            
-            return True
+            logger.info(f"Successfully synchronized achievement node {achievement_id}")
+            return result
             
         except Exception as e:
-            logger.error(f"Error syncing achievement {achievement_id}: {e}")
+            logger.error(f"Error syncing achievement node {achievement_id}: {e}")
             return False
     
-    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
+    async def sync_all_nodes(self, limit: Optional[int] = None) -> Tuple[int, int]:
         """
-        Synchronize all achievements.
+        Synchronize all achievement nodes, without their relationships (except INSTANCE_OF).
         
         Args:
             limit: Optional limit on number of achievements to sync
-            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Tuple of (success_count, failed_count) or dict with success/failed counts
+            Tuple of (success_count, failed_count)
         """
-        logger.info(f"Synchronizing all achievements (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing all achievement nodes (limit={limit})")
         
         try:
             # Get all achievements from SQL database
@@ -108,26 +103,29 @@ class AchievementSyncService(BaseSyncService):
             
             for achievement in achievements:
                 try:
-                    # Sync the achievement node - handle both ORM objects and dictionaries
+                    # Sync only the achievement node - handle both ORM objects and dictionaries
                     achievement_id = achievement.achievement_id if hasattr(achievement, 'achievement_id') else achievement.get("achievement_id")
                     if not achievement_id:
                         logger.error(f"Missing achievement_id in achievement object: {achievement}")
                         failed_count += 1
                         continue
                         
-                    await self.sync_by_id(achievement_id, skip_relationships=skip_relationships)
-                    success_count += 1
+                    if await self.sync_node_by_id(achievement_id):
+                        success_count += 1
+                    else:
+                        failed_count += 1
                 except Exception as e:
                     # Get achievement_id safely for logging
                     achievement_id = getattr(achievement, 'achievement_id', None) if hasattr(achievement, 'achievement_id') else achievement.get("achievement_id", "unknown")
-                    logger.error(f"Error syncing achievement {achievement_id}: {e}")
+                    logger.error(f"Error syncing achievement node {achievement_id}: {e}")
                     failed_count += 1
             
+            logger.info(f"Completed synchronizing achievement nodes: {success_count} successful, {failed_count} failed")
             return (success_count, failed_count)
             
         except Exception as e:
-            logger.error(f"Error during achievement synchronization: {e}")
-            return {"success": 0, "failed": 0}
+            logger.error(f"Error during achievement nodes synchronization: {e}")
+            return (0, 0)
     
     def _convert_to_node(self, achievement: Achievement) -> AchievementNode:
         """
@@ -140,24 +138,17 @@ class AchievementSyncService(BaseSyncService):
             AchievementNode instance
         """
         try:
-            # Create node using the from_sql_model method
-            achievement_node = AchievementNode.from_sql_model(achievement)
-            
-            if not achievement_node:
-                # If conversion failed, create a basic node with just the ID and name
-                logger.warning(f"Failed to convert using from_sql_model for {achievement.achievement_id}, creating basic node")
-                achievement_node = AchievementNode(
-                    achievement_id=achievement.achievement_id,
-                    achievement_name=achievement.achievement_name
-                )
-            
-            # Ensure relationships are established - extract candidate_id and exam_id
-            if hasattr(achievement, 'candidate_exam') and achievement.candidate_exam:
-                if hasattr(achievement.candidate_exam, 'candidate_id'):
-                    achievement_node.candidate_id = achievement.candidate_exam.candidate_id
-                
-                if hasattr(achievement.candidate_exam, 'exam_id'):
-                    achievement_node.exam_id = achievement.candidate_exam.exam_id
+            # Create node using the from_sql_model method - chỉ chuyển đổi node, không chứa thông tin quan hệ
+            achievement_node = AchievementNode(
+                achievement_id=achievement.achievement_id,
+                achievement_name=achievement.achievement_name,
+                achievement_type=getattr(achievement, 'achievement_type', None),
+                achievement_date=getattr(achievement, 'achievement_date', None),
+                issuing_organization=getattr(achievement, 'organization', None),
+                description=getattr(achievement, 'description', None),
+                additional_info=getattr(achievement, 'additional_info', None),
+                achievement_image_url=getattr(achievement, 'proof_url', None)
+            )
             
             return achievement_node
             
@@ -169,7 +160,7 @@ class AchievementSyncService(BaseSyncService):
                 achievement_name=achievement.achievement_name
             )
             
-    async def sync_relationships(self, achievement_id: str) -> Dict[str, int]:
+    async def sync_relationship_by_id(self, achievement_id: str) -> Dict[str, int]:
         """
         Synchronize relationships for a specific achievement.
         
@@ -180,6 +171,16 @@ class AchievementSyncService(BaseSyncService):
             Dictionary with counts of successfully synced relationships by type
         """
         logger.info(f"Synchronizing relationships for achievement {achievement_id}")
+        
+        # Check if achievement node exists before syncing relationships
+        achievement_node = await self.graph_repository.get_by_id(achievement_id)
+        if not achievement_node:
+            logger.warning(f"Achievement node {achievement_id} not found in Neo4j, skipping relationship sync")
+            return {
+                "error": "Achievement node not found in Neo4j",
+                "candidate": 0,
+                "exam": 0
+            }
         
         relationship_counts = {
             "candidate": 0,
@@ -216,9 +217,89 @@ class AchievementSyncService(BaseSyncService):
                 if success:
                     relationship_counts["exam"] += 1
             
-            logger.info(f"Achievement relationship synchronization completed for {achievement_id}")
+            logger.info(f"Achievement relationship synchronization completed for {achievement_id}: {relationship_counts}")
             return relationship_counts
             
         except Exception as e:
             logger.error(f"Error synchronizing relationships for achievement {achievement_id}: {e}")
-            return relationship_counts 
+            return relationship_counts
+            
+    async def sync_all_relationships(self, limit: Optional[int] = None) -> Dict[str, int]:
+        """
+        Synchronize relationships for all achievements.
+        
+        Args:
+            limit: Optional maximum number of achievements to process
+            
+        Returns:
+            Dictionary with counts of synced relationships by type
+        """
+        logger.info(f"Synchronizing relationships for all achievements (limit={limit})")
+        
+        try:
+            # Get all achievements from SQL database
+            achievements, total_count = await self.sql_repository.get_all(limit=limit)
+            
+            total_achievements = len(achievements)
+            success_count = 0
+            failure_count = 0
+            
+            # Aggregated counts for all relationship types
+            relationship_counts = {
+                "candidate": 0,
+                "exam": 0
+            }
+            
+            # For each achievement, sync relationships
+            for achievement in achievements:
+                try:
+                    # Get achievement_id safely - handle both ORM objects and dictionaries
+                    achievement_id = achievement.achievement_id if hasattr(achievement, 'achievement_id') else achievement.get("achievement_id")
+                    if not achievement_id:
+                        logger.error(f"Missing achievement_id in achievement object: {achievement}")
+                        failure_count += 1
+                        continue
+                    
+                    # Verify achievement exists in Neo4j
+                    achievement_node = await self.graph_repository.get_by_id(achievement_id)
+                    if not achievement_node:
+                        logger.warning(f"Achievement {achievement_id} not found in Neo4j, skipping relationship sync")
+                        failure_count += 1
+                        continue
+                    
+                    # Sync relationships for this achievement
+                    results = await self.sync_relationship_by_id(achievement_id)
+                    
+                    # Update aggregated counts
+                    for key, value in results.items():
+                        if key in relationship_counts:
+                            relationship_counts[key] += value
+                    
+                    success_count += 1
+                    
+                except Exception as e:
+                    # Get achievement_id safely for logging
+                    achievement_id = getattr(achievement, 'achievement_id', None) if hasattr(achievement, 'achievement_id') else achievement.get("achievement_id", "unknown")
+                    logger.error(f"Error synchronizing relationships for achievement {achievement_id}: {e}")
+                    failure_count += 1
+            
+            # Prepare final result
+            result = {
+                "total_achievements": total_achievements,
+                "success": success_count,
+                "failed": failure_count,
+                "relationships": relationship_counts
+            }
+            
+            logger.info(f"Completed synchronizing relationships for all achievements: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during achievement relationships synchronization: {e}")
+            return {
+                "total_achievements": 0,
+                "success": 0,
+                "failed": 0,
+                "error": str(e),
+                "relationships": {}
+            } 

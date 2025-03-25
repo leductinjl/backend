@@ -60,11 +60,6 @@ class RecognitionGraphRepository:
             
             # Create relationships if result is successful
             if result and len(result) > 0:
-                # Create relationships with other nodes
-                if hasattr(recognition, 'create_relationships_query'):
-                    rel_query = recognition.create_relationships_query()
-                    await self.neo4j.execute_query(rel_query, params)
-                
                 # Create INSTANCE_OF relationship if the method exists
                 if hasattr(recognition, 'create_instance_of_relationship_query'):
                     instance_query = recognition.create_instance_of_relationship_query()

@@ -157,7 +157,6 @@ class CredentialNode:
         return cls(
             credential_id=credential_model.credential_id,
             title=credential_model.title,
-            candidate_id=credential_model.candidate_id,
             credential_type=credential_model.credential_type,
             issuing_organization=credential_model.issuing_organization,
             issue_date=credential_model.issue_date,

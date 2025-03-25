@@ -32,8 +32,8 @@ class MajorSyncService(BaseSyncService):
         self,
         session: AsyncSession,
         driver: AsyncDriver,
-        major_repository: Optional[MajorRepository] = None,
-        major_graph_repository: Optional[MajorGraphRepository] = None
+        sql_repository: Optional[MajorRepository] = None,
+        graph_repository: Optional[MajorGraphRepository] = None
     ):
         """
         Initialize the MajorSyncService.
@@ -41,26 +41,26 @@ class MajorSyncService(BaseSyncService):
         Args:
             session: SQLAlchemy async session
             driver: Neo4j async driver
-            major_repository: Optional MajorRepository instance
-            major_graph_repository: Optional MajorGraphRepository instance
+            sql_repository: Optional MajorRepository instance
+            graph_repository: Optional MajorGraphRepository instance
         """
+        super().__init__(session, driver, sql_repository, graph_repository)
         self.db_session = session
         self.neo4j_driver = driver
-        self.sql_repository = major_repository or MajorRepository(session)
-        self.graph_repository = major_graph_repository or MajorGraphRepository(driver)
+        self.sql_repository = sql_repository or MajorRepository(session)
+        self.graph_repository = graph_repository or MajorGraphRepository(driver)
     
-    async def sync_by_id(self, major_id: str, skip_relationships: bool = False) -> bool:
+    async def sync_node_by_id(self, major_id: str) -> bool:
         """
-        Synchronize a specific major by ID.
+        Synchronize a specific major node by ID, only creating the node and INSTANCE_OF relationship.
         
         Args:
             major_id: The ID of the major to sync
-            skip_relationships: If True, only sync node without its relationships
             
         Returns:
             True if sync was successful, False otherwise
         """
-        logger.info(f"Synchronizing major {major_id} (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing major node {major_id}")
         
         try:
             # Get major from SQL database
@@ -73,30 +73,26 @@ class MajorSyncService(BaseSyncService):
             neo4j_data = self._convert_to_node(major)
             
             # Create or update node in Neo4j
-            await self.graph_repository.create_or_update(neo4j_data)
+            result = await self.graph_repository.create_or_update(neo4j_data)
             
-            # Sync relationships if needed
-            if not skip_relationships:
-                await self.sync_relationships(major_id)
-            
-            return True
+            logger.info(f"Successfully synchronized major node {major_id}")
+            return result
             
         except Exception as e:
-            logger.error(f"Error syncing major {major_id}: {e}")
+            logger.error(f"Error syncing major node {major_id}: {e}")
             return False
     
-    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
+    async def sync_all_nodes(self, limit: Optional[int] = None) -> Tuple[int, int]:
         """
-        Synchronize all majors.
+        Synchronize all major nodes, without their relationships (except INSTANCE_OF).
         
         Args:
             limit: Optional limit on number of majors to sync
-            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Tuple of (success_count, failed_count) or dict with success/failed counts
+            Tuple of (success_count, failed_count)
         """
-        logger.info(f"Synchronizing all majors (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing all major nodes (limit={limit})")
         
         try:
             # Get all majors from SQL database
@@ -107,26 +103,29 @@ class MajorSyncService(BaseSyncService):
             
             for major in majors:
                 try:
-                    # Sync the major node - handle both ORM objects and dictionaries
+                    # Sync only the major node - handle both ORM objects and dictionaries
                     major_id = major.major_id if hasattr(major, 'major_id') else major.get("major_id")
                     if not major_id:
                         logger.error(f"Missing major_id in major object: {major}")
                         failed_count += 1
                         continue
                         
-                    await self.sync_by_id(major_id, skip_relationships=skip_relationships)
-                    success_count += 1
+                    if await self.sync_node_by_id(major_id):
+                        success_count += 1
+                    else:
+                        failed_count += 1
                 except Exception as e:
                     # Get major_id safely for logging
                     major_id = getattr(major, 'major_id', None) if hasattr(major, 'major_id') else major.get("major_id", "unknown")
-                    logger.error(f"Error syncing major {major_id}: {e}")
+                    logger.error(f"Error syncing major node {major_id}: {e}")
                     failed_count += 1
             
+            logger.info(f"Completed synchronizing major nodes: {success_count} successful, {failed_count} failed")
             return (success_count, failed_count)
             
         except Exception as e:
-            logger.error(f"Error during major synchronization: {e}")
-            return {"success": 0, "failed": 0}
+            logger.error(f"Error during major nodes synchronization: {e}")
+            return (0, 0)
     
     def _convert_to_node(self, major: Major) -> MajorNode:
         """
@@ -151,7 +150,7 @@ class MajorSyncService(BaseSyncService):
                 major_name=major.major_name
             )
             
-    async def sync_relationships(self, major_id: str) -> Dict[str, int]:
+    async def sync_relationship_by_id(self, major_id: str) -> Dict[str, int]:
         """
         Synchronize relationships for a specific major.
         
@@ -162,6 +161,16 @@ class MajorSyncService(BaseSyncService):
             Dictionary with counts of successfully synced relationships by type
         """
         logger.info(f"Synchronizing relationships for major {major_id}")
+        
+        # Check if major node exists before syncing relationships
+        major_node = await self.graph_repository.get_by_id(major_id)
+        if not major_node:
+            logger.warning(f"Major node {major_id} not found in Neo4j, skipping relationship sync")
+            return {
+                "error": "Major node not found in Neo4j",
+                "schools": 0,
+                "degrees": 0
+            }
         
         relationship_counts = {
             "schools": 0,
@@ -195,9 +204,89 @@ class MajorSyncService(BaseSyncService):
                     if success:
                         relationship_counts["degrees"] += 1
             
-            logger.info(f"Major relationship synchronization completed for {major_id}")
+            logger.info(f"Major relationship synchronization completed for {major_id}: {relationship_counts}")
             return relationship_counts
             
         except Exception as e:
             logger.error(f"Error synchronizing relationships for major {major_id}: {e}")
-            return relationship_counts 
+            return relationship_counts
+    
+    async def sync_all_relationships(self, limit: Optional[int] = None) -> Dict[str, int]:
+        """
+        Synchronize relationships for all majors.
+        
+        Args:
+            limit: Optional maximum number of majors to process
+            
+        Returns:
+            Dictionary with counts of synced relationships by type
+        """
+        logger.info(f"Synchronizing relationships for all majors (limit={limit})")
+        
+        try:
+            # Get all majors from SQL database
+            majors, total_count = await self.sql_repository.get_all(limit=limit)
+            
+            total_majors = len(majors)
+            success_count = 0
+            failure_count = 0
+            
+            # Aggregated counts for all relationship types
+            relationship_counts = {
+                "schools": 0,
+                "degrees": 0
+            }
+            
+            # For each major, sync relationships
+            for major in majors:
+                try:
+                    # Get major_id safely - handle both ORM objects and dictionaries
+                    major_id = major.major_id if hasattr(major, 'major_id') else major.get("major_id")
+                    if not major_id:
+                        logger.error(f"Missing major_id in major object: {major}")
+                        failure_count += 1
+                        continue
+                    
+                    # Verify major exists in Neo4j
+                    major_node = await self.graph_repository.get_by_id(major_id)
+                    if not major_node:
+                        logger.warning(f"Major {major_id} not found in Neo4j, skipping relationship sync")
+                        failure_count += 1
+                        continue
+                    
+                    # Sync relationships for this major
+                    results = await self.sync_relationship_by_id(major_id)
+                    
+                    # Update aggregated counts
+                    for key, value in results.items():
+                        if key in relationship_counts:
+                            relationship_counts[key] += value
+                    
+                    success_count += 1
+                    
+                except Exception as e:
+                    # Get major_id safely for logging
+                    major_id = getattr(major, 'major_id', None) if hasattr(major, 'major_id') else major.get("major_id", "unknown")
+                    logger.error(f"Error synchronizing relationships for major {major_id}: {e}")
+                    failure_count += 1
+            
+            # Prepare final result
+            result = {
+                "total_majors": total_majors,
+                "success": success_count,
+                "failed": failure_count,
+                "relationships": relationship_counts
+            }
+            
+            logger.info(f"Completed synchronizing relationships for all majors: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during major relationships synchronization: {e}")
+            return {
+                "total_majors": 0,
+                "success": 0,
+                "failed": 0,
+                "error": str(e),
+                "relationships": {}
+            } 

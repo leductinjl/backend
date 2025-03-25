@@ -69,12 +69,6 @@ class ScoreReviewGraphRepository:
                 params
             )
             
-            # Tạo các mối quan hệ
-            await self.driver.execute_query(
-                review.create_relationships_query(),
-                params
-            )
-            
             # Tạo mối quan hệ INSTANCE_OF
             if hasattr(review, 'create_instance_of_relationship_query'):
                 instance_query = review.create_instance_of_relationship_query()

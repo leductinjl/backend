@@ -42,14 +42,10 @@ class CertificateGraphRepository:
             query = CertificateNode.create_query()
             result = await self.neo4j.execute_query(query, params)
             
-            # Create relationships if possible
+            # Create INSTANCE_OF relationship only
             if result and len(result) > 0:
                 # Create INSTANCE_OF relationship with Certificate class
                 await self._create_instance_of_relationship(params.get('certificate_id'))
-                
-                if hasattr(certificate, 'create_relationships_query'):
-                    rel_query = certificate.create_relationships_query()
-                    await self.neo4j.execute_query(rel_query, params)
                 return True
             return False
         except Exception as e:

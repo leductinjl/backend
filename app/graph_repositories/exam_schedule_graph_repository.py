@@ -51,11 +51,6 @@ class ExamScheduleGraphRepository:
                 schedule.to_dict()
             )
             
-            # Create relationships
-            relationships_query = schedule.create_relationships_query()
-            if relationships_query:
-                await self.neo4j.execute_query(relationships_query, schedule.to_dict())
-            
             # Create INSTANCE_OF relationship if the method exists
             if hasattr(schedule, 'create_instance_of_relationship_query'):
                 instance_query = schedule.create_instance_of_relationship_query()

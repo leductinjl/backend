@@ -32,8 +32,8 @@ class ManagementUnitSyncService(BaseSyncService):
         self,
         session: AsyncSession,
         driver: AsyncDriver,
-        management_unit_repository: Optional[ManagementUnitRepository] = None,
-        management_unit_graph_repository: Optional[ManagementUnitGraphRepository] = None
+        sql_repository: Optional[ManagementUnitRepository] = None,
+        graph_repository: Optional[ManagementUnitGraphRepository] = None
     ):
         """
         Initialize the ManagementUnitSyncService.
@@ -41,26 +41,26 @@ class ManagementUnitSyncService(BaseSyncService):
         Args:
             session: SQLAlchemy async session
             driver: Neo4j async driver
-            management_unit_repository: Optional ManagementUnitRepository instance
-            management_unit_graph_repository: Optional ManagementUnitGraphRepository instance
+            sql_repository: Optional ManagementUnitRepository instance
+            graph_repository: Optional ManagementUnitGraphRepository instance
         """
+        super().__init__(session, driver, sql_repository, graph_repository)
         self.db_session = session
         self.neo4j_driver = driver
-        self.sql_repository = management_unit_repository or ManagementUnitRepository(session)
-        self.graph_repository = management_unit_graph_repository or ManagementUnitGraphRepository(driver)
+        self.sql_repository = sql_repository or ManagementUnitRepository(session)
+        self.graph_repository = graph_repository or ManagementUnitGraphRepository(driver)
     
-    async def sync_by_id(self, unit_id: str, skip_relationships: bool = False) -> bool:
+    async def sync_node_by_id(self, unit_id: str) -> bool:
         """
-        Synchronize a specific management unit by ID.
+        Synchronize a specific management unit node by ID, only creating the node and INSTANCE_OF relationship.
         
         Args:
             unit_id: The ID of the management unit to sync
-            skip_relationships: If True, only sync node without its relationships
             
         Returns:
             True if sync was successful, False otherwise
         """
-        logger.info(f"Synchronizing management unit {unit_id} (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing management unit node {unit_id}")
         
         try:
             # Get management unit from SQL database
@@ -73,30 +73,26 @@ class ManagementUnitSyncService(BaseSyncService):
             neo4j_data = self._convert_to_node(unit)
             
             # Create or update node in Neo4j
-            await self.graph_repository.create_or_update(neo4j_data)
+            result = await self.graph_repository.create_or_update(neo4j_data)
             
-            # Sync relationships if needed
-            if not skip_relationships:
-                await self.sync_relationships(unit_id)
-            
-            return True
+            logger.info(f"Successfully synchronized management unit node {unit_id}")
+            return result
             
         except Exception as e:
-            logger.error(f"Error syncing management unit {unit_id}: {e}")
+            logger.error(f"Error syncing management unit node {unit_id}: {e}")
             return False
     
-    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
+    async def sync_all_nodes(self, limit: Optional[int] = None) -> Tuple[int, int]:
         """
-        Synchronize all management units.
+        Synchronize all management unit nodes, without their relationships (except INSTANCE_OF).
         
         Args:
             limit: Optional limit on number of management units to sync
-            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Tuple of (success_count, failed_count) or dict with success/failed counts
+            Tuple of (success_count, failed_count)
         """
-        logger.info(f"Synchronizing all management units (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing all management unit nodes (limit={limit})")
         
         try:
             # Get all management units from SQL database
@@ -107,26 +103,29 @@ class ManagementUnitSyncService(BaseSyncService):
             
             for unit in units:
                 try:
-                    # Sync the management unit node - handle both ORM objects and dictionaries
+                    # Sync only the management unit node - handle both ORM objects and dictionaries
                     unit_id = unit.unit_id if hasattr(unit, 'unit_id') else unit.get("unit_id")
                     if not unit_id:
                         logger.error(f"Missing unit_id in management unit object: {unit}")
                         failed_count += 1
                         continue
                         
-                    await self.sync_by_id(unit_id, skip_relationships=skip_relationships)
-                    success_count += 1
+                    if await self.sync_node_by_id(unit_id):
+                        success_count += 1
+                    else:
+                        failed_count += 1
                 except Exception as e:
                     # Get unit_id safely for logging
                     unit_id = getattr(unit, 'unit_id', None) if hasattr(unit, 'unit_id') else unit.get("unit_id", "unknown")
-                    logger.error(f"Error syncing management unit {unit_id}: {e}")
+                    logger.error(f"Error syncing management unit node {unit_id}: {e}")
                     failed_count += 1
             
+            logger.info(f"Completed synchronizing management unit nodes: {success_count} successful, {failed_count} failed")
             return (success_count, failed_count)
             
         except Exception as e:
-            logger.error(f"Error during management unit synchronization: {e}")
-            return {"success": 0, "failed": 0}
+            logger.error(f"Error during management unit nodes synchronization: {e}")
+            return (0, 0)
     
     def _convert_to_node(self, unit: ManagementUnit) -> ManagementUnitNode:
         """
@@ -152,7 +151,7 @@ class ManagementUnitSyncService(BaseSyncService):
                 unit_type=unit.unit_type
             )
             
-    async def sync_relationships(self, unit_id: str) -> Dict[str, int]:
+    async def sync_relationship_by_id(self, unit_id: str) -> Dict[str, int]:
         """
         Synchronize relationships for a specific management unit.
         
@@ -163,6 +162,17 @@ class ManagementUnitSyncService(BaseSyncService):
             Dictionary with counts of successfully synced relationships by type
         """
         logger.info(f"Synchronizing relationships for management unit {unit_id}")
+        
+        # Check if management unit node exists before syncing relationships
+        unit_node = await self.graph_repository.get_by_id(unit_id)
+        if not unit_node:
+            logger.warning(f"Management unit node {unit_id} not found in Neo4j, skipping relationship sync")
+            return {
+                "error": "Management unit node not found in Neo4j",
+                "exams": 0,
+                "parent_unit": 0,
+                "child_units": 0
+            }
         
         relationship_counts = {
             "exams": 0,
@@ -199,9 +209,90 @@ class ManagementUnitSyncService(BaseSyncService):
                 if success:
                     relationship_counts["parent_unit"] += 1
             
-            logger.info(f"Management unit relationship synchronization completed for {unit_id}")
+            logger.info(f"Management unit relationship synchronization completed for {unit_id}: {relationship_counts}")
             return relationship_counts
             
         except Exception as e:
             logger.error(f"Error synchronizing relationships for management unit {unit_id}: {e}")
-            return relationship_counts 
+            return relationship_counts
+            
+    async def sync_all_relationships(self, limit: Optional[int] = None) -> Dict[str, int]:
+        """
+        Synchronize relationships for all management units.
+        
+        Args:
+            limit: Optional maximum number of management units to process
+            
+        Returns:
+            Dictionary with counts of synced relationships by type
+        """
+        logger.info(f"Synchronizing relationships for all management units (limit={limit})")
+        
+        try:
+            # Get all management units from SQL database
+            units, total_count = await self.sql_repository.get_all(limit=limit)
+            
+            total_units = len(units)
+            success_count = 0
+            failure_count = 0
+            
+            # Aggregated counts for all relationship types
+            relationship_counts = {
+                "exams": 0,
+                "parent_unit": 0,
+                "child_units": 0
+            }
+            
+            # For each management unit, sync relationships
+            for unit in units:
+                try:
+                    # Get unit_id safely - handle both ORM objects and dictionaries
+                    unit_id = unit.unit_id if hasattr(unit, 'unit_id') else unit.get("unit_id")
+                    if not unit_id:
+                        logger.error(f"Missing unit_id in management unit object: {unit}")
+                        failure_count += 1
+                        continue
+                    
+                    # Verify management unit exists in Neo4j
+                    unit_node = await self.graph_repository.get_by_id(unit_id)
+                    if not unit_node:
+                        logger.warning(f"Management unit {unit_id} not found in Neo4j, skipping relationship sync")
+                        failure_count += 1
+                        continue
+                    
+                    # Sync relationships for this management unit
+                    results = await self.sync_relationship_by_id(unit_id)
+                    
+                    # Update aggregated counts
+                    for key, value in results.items():
+                        if key in relationship_counts:
+                            relationship_counts[key] += value
+                    
+                    success_count += 1
+                    
+                except Exception as e:
+                    # Get unit_id safely for logging
+                    unit_id = getattr(unit, 'unit_id', None) if hasattr(unit, 'unit_id') else unit.get("unit_id", "unknown")
+                    logger.error(f"Error synchronizing relationships for management unit {unit_id}: {e}")
+                    failure_count += 1
+            
+            # Prepare final result
+            result = {
+                "total_units": total_units,
+                "success": success_count,
+                "failed": failure_count,
+                "relationships": relationship_counts
+            }
+            
+            logger.info(f"Completed synchronizing relationships for all management units: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during management unit relationships synchronization: {e}")
+            return {
+                "total_units": 0,
+                "success": 0,
+                "failed": 0,
+                "error": str(e),
+                "relationships": {}
+            } 

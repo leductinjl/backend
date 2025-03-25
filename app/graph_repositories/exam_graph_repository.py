@@ -40,7 +40,7 @@ class ExamGraphRepository:
             
             result = await self.neo4j.execute_query(query, params)
             if result and len(result) > 0:
-                # Create INSTANCE_OF relationship
+                # Create INSTANCE_OF relationship only
                 if hasattr(exam, 'create_instance_of_relationship_query'):
                     instance_of_query = exam.create_instance_of_relationship_query()
                     await self.neo4j.execute_query(instance_of_query, params)

@@ -32,8 +32,8 @@ class ExamRoomSyncService(BaseSyncService):
         self,
         session: AsyncSession,
         driver: AsyncDriver,
-        exam_room_repository: Optional[ExamRoomRepository] = None,
-        exam_room_graph_repository: Optional[ExamRoomGraphRepository] = None
+        sql_repository: Optional[ExamRoomRepository] = None,
+        graph_repository: Optional[ExamRoomGraphRepository] = None
     ):
         """
         Initialize the ExamRoomSyncService.
@@ -41,49 +41,46 @@ class ExamRoomSyncService(BaseSyncService):
         Args:
             session: SQLAlchemy async session
             driver: Neo4j async driver
-            exam_room_repository: Optional ExamRoomRepository instance
-            exam_room_graph_repository: Optional ExamRoomGraphRepository instance
+            sql_repository: Optional ExamRoomRepository instance
+            graph_repository: Optional ExamRoomGraphRepository instance
         """
+        super().__init__(session, driver, sql_repository, graph_repository)
         self.session = session
         self.driver = driver
-        self.exam_room_repository = exam_room_repository or ExamRoomRepository(session)
-        self.exam_room_graph_repository = exam_room_graph_repository or ExamRoomGraphRepository(driver)
+        self.sql_repository = sql_repository or ExamRoomRepository(session)
+        self.graph_repository = graph_repository or ExamRoomGraphRepository(driver)
     
-    async def sync_by_id(self, room_id: str, skip_relationships: bool = False) -> bool:
+    async def sync_node_by_id(self, room_id: str) -> bool:
         """
-        Synchronize a specific exam room by ID.
+        Synchronize a specific exam room node by ID, only creating the node and INSTANCE_OF relationship.
         
         Args:
             room_id: The ID of the room to sync
-            skip_relationships: If True, only sync node without its relationships
             
         Returns:
             True if sync was successful, False otherwise
         """
-        logger.info(f"Synchronizing exam room {room_id} (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing exam room node {room_id}")
         
         try:
             # Get room from SQL database
-            room = await self.exam_room_repository.get_by_id(room_id)
+            room = await self.sql_repository.get_by_id(room_id)
             if not room:
                 logger.error(f"Exam room {room_id} not found in SQL database")
                 return False
             
             # Convert to Neo4j format and save
             room_node = self._convert_to_node(room)
-            await self.exam_room_graph_repository.create_or_update(room_node)
+            result = await self.graph_repository.create_or_update(room_node)
             
-            # Sync relationships if needed
-            if not skip_relationships:
-                await self.sync_relationships(room_id)
-            
-            return True
+            logger.info(f"Successfully synchronized exam room node {room_id}")
+            return result
             
         except Exception as e:
-            logger.error(f"Error syncing exam room {room_id}: {e}")
+            logger.error(f"Error syncing exam room node {room_id}: {e}")
             return False
     
-    async def sync_relationships(self, room_id: str) -> Dict[str, int]:
+    async def sync_relationship_by_id(self, room_id: str) -> Dict[str, int]:
         """
         Synchronize relationships for a specific exam room.
         
@@ -95,14 +92,26 @@ class ExamRoomSyncService(BaseSyncService):
         """
         logger.info(f"Synchronizing relationships for exam room {room_id}")
         
+        # Check if exam room node exists before syncing relationships
+        room_node = await self.graph_repository.get_by_id(room_id)
+        if not room_node:
+            logger.warning(f"Exam room node {room_id} not found in Neo4j, skipping relationship sync")
+            return {
+                "error": "Exam room node not found in Neo4j",
+                "location": 0,
+                "schedules": 0,
+                "exams": 0
+            }
+        
         relationship_counts = {
             "location": 0,
-            "schedules": 0
+            "schedules": 0,
+            "exams": 0
         }
         
         try:
             # Get the room data from SQL
-            room = await self.exam_room_repository.get_by_id(room_id)
+            room = await self.sql_repository.get_by_id(room_id)
             if not room:
                 logger.error(f"Exam room {room_id} not found in SQL database")
                 return relationship_counts
@@ -114,7 +123,13 @@ class ExamRoomSyncService(BaseSyncService):
             if room.get("location_id"):
                 relationship_counts["location"] += 1
             
-            logger.info(f"Exam room relationship synchronization completed for {room_id}")
+            # Count exam relationships
+            if isinstance(room, dict) and "exams" in room:
+                relationship_counts["exams"] = len(room["exams"])
+            elif hasattr(room, "exams") and room.exams:
+                relationship_counts["exams"] = len(room.exams)
+            
+            logger.info(f"Exam room relationship synchronization completed for {room_id}: {relationship_counts}")
             return relationship_counts
             
         except Exception as e:
@@ -156,27 +171,26 @@ class ExamRoomSyncService(BaseSyncService):
                 exam_id = exam.exam_id
                 
             if exam_id:
-                await self.exam_room_graph_repository.add_exam_relationship(
+                await self.graph_repository.add_exam_relationship(
                     room_id, 
                     exam_id
                 )
     
-    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
+    async def sync_all_nodes(self, limit: Optional[int] = None) -> Tuple[int, int]:
         """
-        Synchronize all exam rooms.
+        Synchronize all exam room nodes, without their relationships (except INSTANCE_OF).
         
         Args:
             limit: Optional limit on number of exam rooms to sync
-            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Tuple of (success_count, failed_count) or dict with success/failed counts
+            Tuple of (success_count, failed_count)
         """
-        logger.info(f"Synchronizing all exam rooms (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing all exam room nodes (limit={limit})")
         
         try:
             # Get all exam rooms from SQL database
-            rooms, _ = await self.exam_room_repository.get_all(limit=limit)
+            rooms, _ = await self.sql_repository.get_all(limit=limit)
             
             success_count = 0
             failed_count = 0
@@ -193,18 +207,117 @@ class ExamRoomSyncService(BaseSyncService):
                         failed_count += 1
                         continue
                     
-                    # Sync the exam room node
-                    await self.sync_by_id(room_id, skip_relationships=skip_relationships)
-                    success_count += 1
+                    # Sync only the exam room node
+                    if await self.sync_node_by_id(room_id):
+                        success_count += 1
+                    else:
+                        failed_count += 1
                 except Exception as e:
-                    logger.error(f"Error syncing exam room {room_id}: {e}")
+                    # Get room_id safely for logging
+                    if isinstance(room, ExamRoom):
+                        room_id = room.room_id
+                    elif isinstance(room, dict):
+                        room_id = room.get("room_id", "unknown")
+                    else:
+                        room_id = "unknown"
+                    logger.error(f"Error syncing exam room node {room_id}: {e}")
                     failed_count += 1
             
+            logger.info(f"Completed synchronizing exam room nodes: {success_count} successful, {failed_count} failed")
             return (success_count, failed_count)
             
         except Exception as e:
-            logger.error(f"Error during exam room synchronization: {e}")
-            return {"success": 0, "failed": 0}
+            logger.error(f"Error during exam room nodes synchronization: {e}")
+            return (0, 0)
+    
+    async def sync_all_relationships(self, limit: Optional[int] = None) -> Dict[str, int]:
+        """
+        Synchronize relationships for all exam rooms.
+        
+        Args:
+            limit: Optional maximum number of exam rooms to process
+            
+        Returns:
+            Dictionary with counts of synced relationships by type
+        """
+        logger.info(f"Synchronizing relationships for all exam rooms (limit={limit})")
+        
+        try:
+            # Get all exam rooms from SQL database
+            rooms, total_count = await self.sql_repository.get_all(limit=limit)
+            
+            total_rooms = len(rooms)
+            success_count = 0
+            failure_count = 0
+            
+            # Aggregated counts for all relationship types
+            relationship_counts = {
+                "location": 0,
+                "schedules": 0,
+                "exams": 0
+            }
+            
+            # For each exam room, sync relationships
+            for room in rooms:
+                try:
+                    # Get room_id safely - handle both ORM objects and dictionaries
+                    if isinstance(room, ExamRoom):
+                        room_id = room.room_id
+                    elif isinstance(room, dict):
+                        room_id = room.get("room_id")
+                    else:
+                        logger.warning(f"Unexpected room data type: {type(room)}")
+                        failure_count += 1
+                        continue
+                    
+                    # Verify exam room exists in Neo4j
+                    room_node = await self.graph_repository.get_by_id(room_id)
+                    if not room_node:
+                        logger.warning(f"Exam room {room_id} not found in Neo4j, skipping relationship sync")
+                        failure_count += 1
+                        continue
+                    
+                    # Sync relationships for this exam room
+                    results = await self.sync_relationship_by_id(room_id)
+                    
+                    # Update aggregated counts
+                    for key, value in results.items():
+                        if key in relationship_counts:
+                            relationship_counts[key] += value
+                    
+                    success_count += 1
+                    
+                except Exception as e:
+                    # Get room_id safely for logging
+                    if isinstance(room, ExamRoom):
+                        room_id = room.room_id
+                    elif isinstance(room, dict):
+                        room_id = room.get("room_id", "unknown")
+                    else:
+                        room_id = "unknown"
+                    logger.error(f"Error synchronizing relationships for exam room {room_id}: {e}")
+                    failure_count += 1
+            
+            # Prepare final result
+            result = {
+                "total_rooms": total_rooms,
+                "success": success_count,
+                "failed": failure_count,
+                "relationships": relationship_counts
+            }
+            
+            logger.info(f"Completed synchronizing relationships for all exam rooms: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during exam room relationships synchronization: {e}")
+            return {
+                "total_rooms": 0,
+                "success": 0,
+                "failed": 0,
+                "error": str(e),
+                "relationships": {}
+            }
     
     def _convert_to_node(self, room: Any) -> ExamRoomNode:
         """
@@ -225,7 +338,6 @@ class ExamRoomSyncService(BaseSyncService):
                 room_data = {
                     "room_id": room.room_id,
                     "room_name": room.room_name,
-                    "location_id": room.location_id,
                     "capacity": room.capacity,
                     "floor": room.floor,
                     "room_number": room.room_number,
@@ -244,7 +356,6 @@ class ExamRoomSyncService(BaseSyncService):
             room_node = ExamRoomNode(
                 room_id=room_data["room_id"],
                 room_name=room_data["room_name"],
-                location_id=room_data["location_id"],
                 capacity=room_data.get("capacity"),
                 floor=room_data.get("floor"),
                 room_number=room_data.get("room_number"),
@@ -262,14 +373,11 @@ class ExamRoomSyncService(BaseSyncService):
             if isinstance(room, dict):
                 room_id = room.get("room_id")
                 room_name = room.get("room_name", f"Room {room_id}")
-                location_id = room.get("location_id")
             else:
                 room_id = getattr(room, "room_id", "unknown")
                 room_name = getattr(room, "room_name", f"Room {room_id}")
-                location_id = getattr(room, "location_id", None)
                 
             return ExamRoomNode(
                 room_id=room_id,
-                room_name=room_name,
-                location_id=location_id
+                room_name=room_name
             ) 

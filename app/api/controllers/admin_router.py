@@ -325,7 +325,6 @@ async def list_invitations(
 
 @router.post("/sync/neo4j", response_model=dict, summary="Synchronize Data to Neo4j")
 async def synchronize_to_neo4j(
-    entity_type: Optional[str] = None,
     sync_mode: str = "full",  # Options: "full", "nodes", "relationships"
     limit: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
@@ -335,38 +334,16 @@ async def synchronize_to_neo4j(
     """
     Đồng bộ dữ liệu từ PostgreSQL sang Neo4j knowledge graph.
     
-    Endpoint này sẽ đồng bộ các entity và mối quan hệ tùy theo mode được chọn.
+    Endpoint này sẽ đồng bộ các node hoặc mối quan hệ tùy theo mode được chọn.
     
     Args:
-        entity_type: Loại thực thể để đồng bộ. Các loại có thể:
-                    - "subject": Môn học
-                    - "score": Điểm số
-                    - "score_review": Đánh giá điểm
-                    - "exam": Kỳ thi
-                    - "candidate": Thí sinh
-                    - "achievement": Thành tích
-                    - "award": Giải thưởng
-                    - "certificate": Chứng chỉ
-                    - "credential": Chứng nhận
-                    - "degree": Bằng cấp
-                    - "exam_location": Địa điểm thi
-                    - "exam_room": Phòng thi
-                    - "exam_schedule": Lịch thi
-                    - "major": Chuyên ngành
-                    - "management_unit": Đơn vị quản lý
-                    - "recognition": Công nhận
-                    - "school": Trường học
-                    Nếu không có, đồng bộ tất cả các loại thực thể.
-        
         sync_mode: Chế độ đồng bộ hóa:
                   - "full": Đồng bộ cả nodes và relationships (mặc định)
-                  - "nodes": Chỉ đồng bộ nodes, không đồng bộ relationships
-                  - "relationships": Chỉ đồng bộ relationships, không tạo/cập nhật nodes
+                  - "nodes": Chỉ đồng bộ nodes
+                  - "relationships": Chỉ đồng bộ relationships
         
         limit: Giới hạn số lượng thực thể xử lý cho mỗi loại
     """
-    from app.services.sync import MainSyncService
-    
     # Validate sync_mode
     valid_modes = ["full", "nodes", "relationships"]
     if sync_mode not in valid_modes:
@@ -375,65 +352,40 @@ async def synchronize_to_neo4j(
             "message": f"Invalid sync mode: {sync_mode}. Valid modes are: {', '.join(valid_modes)}"
         }
     
-    # Validate entity_type if provided
-    if entity_type:
-        valid_entity_types = [
-            "subject", "score", "score_review", "exam", "candidate", 
-            "achievement", "award", "certificate", "credential", "degree", 
-            "exam_location", "exam_room", "exam_schedule", "major", 
-            "management_unit", "recognition", "school"
-        ]
-        
-        if entity_type not in valid_entity_types:
-            return {
-                "status": "error",
-                "message": f"Invalid entity type: {entity_type}. Valid types are: {', '.join(valid_entity_types)}"
-            }
-    
     try:
         sync_service = MainSyncService(session=db, driver=neo4j._driver)
         results = {}
         
         # Handle different sync modes
         if sync_mode == "full":
-            # Full synchronization of nodes and relationships
-            if entity_type:
-                # Sync specific entity type
-                results = await sync_service.sync_by_type(entity_type, limit=limit)
-            else:
-                # Sync all entity types
-                results = await sync_service.sync_all_entities(limit=limit)
+            # First sync all nodes
+            node_results = await sync_service.sync_all_nodes(limit=limit)
+            
+            # Then sync all relationships
+            relationship_results = await sync_service.sync_all_relationships(limit=limit)
+            
+            # Combine results
+            results = {
+                "nodes": node_results,
+                "relationships": relationship_results
+            }
+            
+            message = "Full synchronization completed (nodes and relationships)"
+                
+        elif sync_mode == "nodes":
+            # Only synchronize nodes
+            results = await sync_service.sync_all_nodes(limit=limit)
+            message = "Node synchronization completed"
                 
         elif sync_mode == "relationships":
             # Only synchronize relationships
-            if entity_type:
-                # Sync relationships for specific entity type
-                results = await sync_service.sync_all_relationships(entity_type=entity_type, limit=limit)
-            else:
-                # Sync relationships for all entity types
-                results = await sync_service.sync_all_relationships(limit=limit)
-                
-        elif sync_mode == "nodes":
-            # Only synchronize nodes (without relationships)
-            if entity_type:
-                # Sync specific entity type (nodes only)
-                # For now, we'll just do a full sync since skip_relationships is not supported
-                results = await sync_service.sync_by_type(entity_type, limit=limit)
-            else:
-                # Sync all entity types (nodes only)
-                # For now, we'll just do a full sync since skip_relationships is not supported
-                results = await sync_service.sync_all_entities(limit=limit)
+            results = await sync_service.sync_all_relationships(limit=limit)
+            message = "Relationship synchronization completed"
         
         return {
             "status": "success",
-            "message": f"{sync_mode.capitalize()} synchronization completed for {entity_type or 'all entity types'}",
+            "message": message,
             "results": results
-        }
-    except NotImplementedError as e:
-        return {
-            "status": "error",
-            "message": str(e),
-            "results": {}
         }
     except Exception as e:
         logger.error(f"Error during Neo4j synchronization: {e}", exc_info=True)
@@ -443,96 +395,75 @@ async def synchronize_to_neo4j(
             "results": {}
         }
 
-@router.post("/sync/neo4j/{entity_id}")
-async def synchronize_entity_by_id(
-    entity_type: EntityType,
-    entity_id: str,
-    sync_mode: str = "full",  # Options: "full", "nodes", "relationships"
+@router.post("/sync/neo4j/nodes", response_model=dict, summary="Synchronize Only Nodes to Neo4j")
+async def synchronize_only_nodes(
+    limit: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     neo4j = Depends(get_neo4j),
     admin: dict = Depends(get_current_admin)
-) -> Dict[str, Any]:
+):
     """
-    Đồng bộ một thực thể cụ thể theo ID từ PostgreSQL sang Neo4j knowledge graph.
+    Đồng bộ chỉ các node từ PostgreSQL sang Neo4j, không đồng bộ quan hệ.
     
-    Endpoint này sẽ đồng bộ thực thể và mối quan hệ tùy theo mode được chọn.
+    Endpoint này là bước 1 trong quy trình đồng bộ 2 bước: đầu tiên tạo tất cả các node,
+    sau đó mới tạo các mối quan hệ. Cách tiếp cận này giúp tránh lỗi tham chiếu
+    khi tạo mối quan hệ giữa các node chưa tồn tại.
     
     Args:
-        entity_type: Loại thực thể để đồng bộ. Các loại có thể:
-                    - "subject": Môn học
-                    - "score": Điểm số
-                    - "score_review": Đánh giá điểm
-                    - "exam": Kỳ thi
-                    - "candidate": Thí sinh
-                    - "achievement": Thành tích
-                    - "award": Giải thưởng
-                    - "certificate": Chứng chỉ
-                    - "credential": Chứng nhận
-                    - "degree": Bằng cấp
-                    - "exam_location": Địa điểm thi
-                    - "exam_room": Phòng thi
-                    - "exam_schedule": Lịch thi
-                    - "major": Chuyên ngành
-                    - "management_unit": Đơn vị quản lý
-                    - "recognition": Công nhận
-                    - "school": Trường học
-        
-        entity_id: ID của thực thể cần đồng bộ
-        
-        sync_mode: Chế độ đồng bộ hóa:
-                  - "full": Đồng bộ cả node và relationships (mặc định)
-                  - "nodes": Chỉ đồng bộ node, không đồng bộ relationships
-                  - "relationships": Chỉ đồng bộ relationships, không tạo/cập nhật node
+        limit: Giới hạn số lượng thực thể xử lý cho mỗi loại
     """
-    # Validate sync_mode
-    valid_modes = ["full", "nodes", "relationships"]
-    if sync_mode not in valid_modes:
-        return {
-            "status": "error",
-            "message": f"Invalid sync mode: {sync_mode}. Valid modes are: {', '.join(valid_modes)}"
-        }
-    
     try:
-        # Get sync service
-        sync_service = await get_sync_service(entity_type, db, neo4j)
+        sync_service = MainSyncService(session=db, driver=neo4j._driver)
         
-        # Handle different sync modes
-        if sync_mode == "full":
-            # Full synchronization of node and relationships
-            result = await sync_service.sync_entity_by_id(entity_type, entity_id)
-            
-        elif sync_mode == "relationships":
-            # Only synchronize relationships
-            result = await sync_service.sync_entity_relationships(entity_type, entity_id)
-            
-        elif sync_mode == "nodes":
-            # Only synchronize node (without relationships)
-            result = await sync_service.sync_entity_by_id(entity_type, entity_id, skip_relationships=True)
+        # Synchronize all nodes
+        results = await sync_service.sync_all_nodes(limit=limit)
         
-        if result:
-            return {
-                "status": "success",
-                "message": f"{sync_mode.capitalize()} synchronization completed for {entity_type} with ID {entity_id}",
-                "data": result
-            }
-        else:
-            return {
-                "status": "error",
-                "message": f"Failed to synchronize {entity_type} with ID {entity_id}"
-            }
-            
-    except NotImplementedError as e:
         return {
-            "status": "error",
-            "message": str(e),
-            "data": {}
+            "status": "success",
+            "message": "Node synchronization completed",
+            "results": results
         }
     except Exception as e:
-        logger.error(f"Error synchronizing {entity_type} with ID {entity_id}: {str(e)}", exc_info=True)
+        logger.error(f"Error during Neo4j node synchronization: {e}", exc_info=True)
         return {
             "status": "error",
-            "message": f"Error during synchronization: {str(e)}",
-            "data": {}
+            "message": f"Error during node synchronization: {str(e)}",
+            "results": {}
+        }
+
+@router.post("/sync/neo4j/relationships", response_model=dict, summary="Synchronize Only Relationships to Neo4j")
+async def synchronize_only_relationships(
+    limit: Optional[int] = None,
+    db: AsyncSession = Depends(get_db),
+    neo4j = Depends(get_neo4j),
+    admin: dict = Depends(get_current_admin)
+):
+    """
+    Đồng bộ chỉ các mối quan hệ giữa các node đã tồn tại trong Neo4j.
+    
+    Endpoint này là bước 2 trong quy trình đồng bộ 2 bước. Nó giả định rằng
+    tất cả các node đã được tạo trước đó và chỉ đồng bộ các mối quan hệ giữa chúng.
+    
+    Args:
+        limit: Giới hạn số lượng thực thể xử lý cho mỗi loại
+    """
+    try:
+        sync_service = MainSyncService(session=db, driver=neo4j._driver)
+        
+        # Synchronize all relationships
+        results = await sync_service.sync_all_relationships(limit=limit)
+        
+        return {
+            "status": "success",
+            "message": "Relationship synchronization completed",
+            "results": results
+        }
+    except Exception as e:
+        logger.error(f"Error during Neo4j relationship synchronization: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": f"Error during relationship synchronization: {str(e)}",
+            "results": {}
         }
 
 # Additional admin routes for managing exams, schools, etc. would go here

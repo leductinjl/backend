@@ -161,13 +161,10 @@ class ScoreReviewNode:
         new_score = float(self.new_score) if self.new_score is not None else None
         
         result = {
+            # Thuộc tính cơ bản của node
             "review_id": self.review_id,
             "review_name": self.review_name,
             "name": self.name,
-            "score_id": self.score_id,
-            "candidate_id": self.candidate_id,
-            "subject_id": self.subject_id,
-            "exam_id": self.exam_id,
             "status": self.status,
             "request_date": self.request_date,
             "resolution_date": self.resolution_date,
@@ -175,7 +172,14 @@ class ScoreReviewNode:
             "new_score": new_score,
             "reviewer": self.reviewer,
             "reason": self.reason,
-            "additional_info": self.additional_info
+            "additional_info": self.additional_info,
+            
+            # Các trường liên quan đến relationship, không được lưu vào node
+            # Chỉ được giữ lại cho mục đích tạo relationship trong sync_relationship_by_id
+            "score_id": self.score_id,
+            "candidate_id": self.candidate_id,
+            "subject_id": self.subject_id,
+            "exam_id": self.exam_id
         }
         
         # Chuyển đổi các đối tượng datetime sang chuỗi nếu cần
@@ -201,10 +205,6 @@ class ScoreReviewNode:
         return cls(
             review_id=review_model.review_id,
             review_name=getattr(review_model, 'review_name', f"Review {review_model.review_id}"),
-            score_id=getattr(review_model, 'score_id', None),
-            candidate_id=getattr(review_model, 'candidate_id', None),
-            subject_id=getattr(review_model, 'subject_id', None),
-            exam_id=getattr(review_model, 'exam_id', None),
             status=getattr(review_model, 'status', None),
             request_date=getattr(review_model, 'request_date', None),
             resolution_date=getattr(review_model, 'resolution_date', None),

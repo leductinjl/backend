@@ -197,89 +197,47 @@ class ScoreNode:
         if isinstance(score_model, dict):
             # Trường hợp score_model là dictionary
             score_id = score_model.get('exam_score_id')
-            candidate_id = score_model.get('candidate_id')
-            subject_id = score_model.get('subject_id')
-            exam_id = score_model.get('exam_id')
             score_value = score_model.get('score_value')
             status = score_model.get('status')
             graded_by = score_model.get('graded_by')
             graded_at = score_model.get('graded_at')
             score_history = score_model.get('score_history')
             
-            # Thông tin bổ sung cho mối quan hệ RECEIVES_SCORE
-            exam_name = score_model.get('exam_name')
+            # Tạo tên hiển thị cho node
+            name = None
             subject_name = score_model.get('subject_name')
-            registration_status = score_model.get('registration_status')
-            registration_date = score_model.get('registration_date')
-            is_required = score_model.get('is_required')
-            exam_date = score_model.get('exam_date')
-            
-            # Bổ sung từ các tham số tùy chọn
-            if exam:
-                exam_id = exam.get('exam_id') if isinstance(exam, dict) else getattr(exam, 'exam_id', exam_id)
-                exam_name = exam.get('exam_name') if isinstance(exam, dict) else getattr(exam, 'exam_name', exam_name)
-            
-            if subject:
-                subject_id = subject.get('subject_id') if isinstance(subject, dict) else getattr(subject, 'subject_id', subject_id)
-                subject_name = subject.get('subject_name') if isinstance(subject, dict) else getattr(subject, 'subject_name', subject_name)
-            
-            if candidate_exam_subject:
-                registration_status = candidate_exam_subject.get('status') if isinstance(candidate_exam_subject, dict) else getattr(candidate_exam_subject, 'status', registration_status)
-                registration_date = candidate_exam_subject.get('registration_date') if isinstance(candidate_exam_subject, dict) else getattr(candidate_exam_subject, 'registration_date', registration_date)
-                is_required = candidate_exam_subject.get('is_required') if isinstance(candidate_exam_subject, dict) else getattr(candidate_exam_subject, 'is_required', is_required)
-                exam_date = candidate_exam_subject.get('exam_date') if isinstance(candidate_exam_subject, dict) else getattr(candidate_exam_subject, 'exam_date', exam_date)
+            exam_name = score_model.get('exam_name')
+            if score_value is not None and subject_name:
+                name = f"{subject_name}: {score_value}"
+            elif score_value is not None and exam_name:
+                name = f"{exam_name}: {score_value}"
+            else:
+                name = f"Score {score_id}"
             
         else:
             # Trường hợp score_model là SQLAlchemy model
             score_id = getattr(score_model, 'exam_score_id', None)
-            candidate_id = getattr(score_model, 'candidate_id', None)
-            subject_id = getattr(score_model, 'subject_id', None)
-            exam_id = getattr(score_model, 'exam_id', None)
-            score_value = getattr(score_model, 'score_value', None)
+            score_value = getattr(score_model, 'score_value', None) or getattr(score_model, 'score', None)
             status = getattr(score_model, 'status', None)
             graded_by = getattr(score_model, 'graded_by', None)
             graded_at = getattr(score_model, 'graded_at', None)
             score_history = getattr(score_model, 'score_history', None)
             
-            # Thông tin bổ sung cho mối quan hệ RECEIVES_SCORE
-            exam_name = getattr(score_model, 'exam_name', None)
-            subject_name = getattr(score_model, 'subject_name', None)
-            registration_status = getattr(score_model, 'registration_status', None)
-            registration_date = getattr(score_model, 'registration_date', None)
-            is_required = getattr(score_model, 'is_required', None)
-            exam_date = getattr(score_model, 'exam_date', None)
-            
-            # Bổ sung từ các tham số tùy chọn
-            if exam:
-                exam_id = exam.exam_id if exam_id is None else exam_id
-                exam_name = exam.exam_name if exam_name is None else exam_name
-            
-            if subject:
-                subject_id = subject.subject_id if subject_id is None else subject_id
-                subject_name = subject.subject_name if subject_name is None else subject_name
-            
-            if candidate_exam_subject:
-                registration_status = candidate_exam_subject.status if registration_status is None else registration_status
-                registration_date = candidate_exam_subject.registration_date if registration_date is None else registration_date
-                is_required = candidate_exam_subject.is_required if is_required is None else is_required
-                exam_date = candidate_exam_subject.exam_date if exam_date is None else exam_date
+            # Tạo tên hiển thị cho node
+            name = f"Score {score_id}"
+            if hasattr(score_model, 'subject') and score_model.subject and score_value is not None:
+                name = f"{score_model.subject.subject_name}: {score_value}"
+            elif hasattr(score_model, 'exam') and score_model.exam and score_value is not None:
+                name = f"{score_model.exam.exam_name}: {score_value}"
         
         return cls(
             score_id=score_id,
-            candidate_id=candidate_id,
-            subject_id=subject_id,
-            exam_id=exam_id,
             score_value=score_value,
             status=status,
             graded_by=graded_by,
             graded_at=graded_at,
             score_history=score_history,
-            exam_name=exam_name,
-            subject_name=subject_name,
-            registration_status=registration_status,
-            registration_date=registration_date,
-            is_required=is_required,
-            exam_date=exam_date
+            name=name
         )
     
     @staticmethod

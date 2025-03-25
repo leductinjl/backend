@@ -74,18 +74,17 @@ class CandidateSyncService(BaseSyncService):
         self.candidate_exam_subject_repository = None  # Will be lazily initialized if needed
         self.exam_schedule_repository = None  # Will be lazily initialized if needed
     
-    async def sync_by_id(self, candidate_id: str, skip_relationships: bool = False) -> bool:
+    async def sync_node_by_id(self, candidate_id: str) -> bool:
         """
-        Synchronize a specific candidate by ID.
+        Synchronize a specific candidate node by ID, only creating the node and INSTANCE_OF relationship.
         
         Args:
             candidate_id: The ID of the candidate to sync
-            skip_relationships: If True, only sync node without its relationships
             
         Returns:
             True if sync was successful, False otherwise
         """
-        logger.info(f"Synchronizing candidate {candidate_id} (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing candidate node {candidate_id}")
         
         try:
             # Get candidate from SQL database with personal info
@@ -97,31 +96,27 @@ class CandidateSyncService(BaseSyncService):
             # Convert to Neo4j format
             neo4j_data = self._convert_to_node(candidate)
             
-            # Create or update node in Neo4j
-            await self.graph_repository.create_or_update(neo4j_data)
+            # Create or update node in Neo4j (this automatically creates the INSTANCE_OF relationship)
+            result = await self.graph_repository.create_or_update(neo4j_data)
             
-            # Sync relationships if needed
-            if not skip_relationships:
-                await self.sync_relationships(candidate_id)
-            
-            return True
+            logger.info(f"Successfully synchronized candidate node {candidate_id}")
+            return result
                 
         except Exception as e:
-            logger.error(f"Error syncing candidate {candidate_id}: {e}")
+            logger.error(f"Error syncing candidate node {candidate_id}: {e}")
             return False
     
-    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
+    async def sync_all_nodes(self, limit: Optional[int] = None) -> Tuple[int, int]:
         """
-        Synchronize all candidates.
+        Synchronize all candidate nodes, without their relationships (except INSTANCE_OF).
         
         Args:
             limit: Optional limit on number of candidates to sync
-            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Tuple of (success_count, failed_count) or dict with success/failed counts
+            Tuple of (success_count, failed_count)
         """
-        logger.info(f"Synchronizing all candidates (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing all candidate nodes (limit={limit})")
         
         try:
             # Get all candidates from SQL database with personal info
@@ -134,20 +129,23 @@ class CandidateSyncService(BaseSyncService):
             
             for candidate in candidates:
                 try:
-                    # Sync the candidate node
-                    await self.sync_by_id(candidate.candidate_id, skip_relationships=skip_relationships)
-                    success_count += 1
+                    # Sync only the candidate node
+                    if await self.sync_node_by_id(candidate.candidate_id):
+                        success_count += 1
+                    else:
+                        failed_count += 1
                 except Exception as e:
-                    logger.error(f"Error syncing candidate {candidate.candidate_id}: {e}")
+                    logger.error(f"Error syncing candidate node {candidate.candidate_id}: {e}")
                     failed_count += 1
             
+            logger.info(f"Completed synchronizing candidate nodes: {success_count} successful, {failed_count} failed")
             return (success_count, failed_count)
             
         except Exception as e:
-            logger.error(f"Error during candidate synchronization: {e}")
-            return {"success": 0, "failed": 0}
+            logger.error(f"Error during candidate nodes synchronization: {e}")
+            return (0, 0)
     
-    async def sync_relationships(self, candidate_id: str) -> Dict[str, int]:
+    async def sync_relationship_by_id(self, candidate_id: str) -> Dict[str, int]:
         """
         Synchronize all relationships for a specific candidate.
         
@@ -163,6 +161,27 @@ class CandidateSyncService(BaseSyncService):
         Returns:
             Dictionary with counts of successfully synced relationships by type
         """
+        logger.info(f"Synchronizing relationships for candidate {candidate_id}")
+        
+        # Check if candidate node exists before syncing relationships
+        candidate_node = await self.graph_repository.get_by_id(candidate_id)
+        if not candidate_node:
+            logger.warning(f"Candidate node {candidate_id} not found in Neo4j, skipping relationship sync")
+            return {
+                "error": "Candidate node not found in Neo4j",
+                "schools": 0,
+                "majors": 0,
+                "degrees": 0,
+                "exams": 0,
+                "scores": 0,
+                "schedules": 0,
+                "certificates": 0,
+                "credentials": 0,
+                "awards": 0,
+                "achievements": 0,
+                "recognitions": 0
+            }
+            
         results = {
             "schools": 0,
             "majors": 0,
@@ -338,6 +357,88 @@ class CandidateSyncService(BaseSyncService):
         except Exception as e:
             logger.error(f"Error synchronizing relationships for candidate {candidate_id}: {str(e)}", exc_info=True)
             return results
+    
+    async def sync_all_relationships(self, limit: Optional[int] = None) -> Dict[str, int]:
+        """
+        Synchronize relationships for all candidates.
+        
+        Args:
+            limit: Optional maximum number of candidates to process
+            
+        Returns:
+            Dictionary with counts of synced relationships by type
+        """
+        logger.info(f"Synchronizing relationships for all candidates (limit={limit})")
+        
+        try:
+            # Get all candidate IDs from database
+            candidates = await self.sql_repository.get_all(limit=limit)
+            if isinstance(candidates, tuple) and len(candidates) == 2:
+                candidates, _ = candidates
+                
+            total_candidates = len(candidates)
+            success_count = 0
+            failure_count = 0
+            
+            # Aggregated counts for all relationship types
+            relationship_counts = {
+                "schools": 0,
+                "majors": 0,
+                "degrees": 0,
+                "exams": 0,
+                "scores": 0,
+                "schedules": 0,
+                "certificates": 0,
+                "credentials": 0,
+                "awards": 0,
+                "achievements": 0,
+                "recognitions": 0
+            }
+            
+            # For each candidate, sync relationships
+            for candidate in candidates:
+                try:
+                    # Verify candidate exists in Neo4j
+                    candidate_node = await self.graph_repository.get_by_id(candidate.candidate_id)
+                    if not candidate_node:
+                        logger.warning(f"Candidate {candidate.candidate_id} not found in Neo4j, skipping relationship sync")
+                        failure_count += 1
+                        continue
+                        
+                    # Sync relationships for this candidate
+                    results = await self.sync_relationship_by_id(candidate.candidate_id)
+                    
+                    # Update aggregated counts
+                    for key, value in results.items():
+                        if key in relationship_counts:
+                            relationship_counts[key] += value
+                    
+                    success_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error synchronizing relationships for candidate {candidate.candidate_id}: {e}")
+                    failure_count += 1
+            
+            # Prepare final result
+            result = {
+                "total_candidates": total_candidates,
+                "success": success_count,
+                "failed": failure_count,
+                "relationships": relationship_counts
+            }
+            
+            logger.info(f"Completed synchronizing relationships for all candidates: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during candidate relationships synchronization: {e}")
+            return {
+                "total_candidates": 0,
+                "success": 0, 
+                "failed": 0,
+                "error": str(e),
+                "relationships": {}
+            }
     
     def _convert_to_node(self, candidate: Candidate) -> CandidateNode:
         """

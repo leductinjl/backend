@@ -65,10 +65,6 @@ class ScoreGraphRepository:
             result = await self.neo4j.execute_query(query, params)
             
             if result and len(result) > 0:
-                # Create relationships with other nodes
-                rel_query = ScoreNode.create_relationships_query()
-                await self.neo4j.execute_query(rel_query, params)
-                
                 # Create INSTANCE_OF relationship if the method exists
                 if hasattr(score, 'create_instance_of_relationship_query'):
                     instance_query = score.create_instance_of_relationship_query()

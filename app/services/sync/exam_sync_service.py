@@ -32,8 +32,8 @@ class ExamSyncService(BaseSyncService):
         self,
         session: AsyncSession,
         driver: AsyncDriver,
-        exam_repository: Optional[ExamRepository] = None,
-        exam_graph_repository: Optional[ExamGraphRepository] = None
+        sql_repository: Optional[ExamRepository] = None,
+        graph_repository: Optional[ExamGraphRepository] = None
     ):
         """
         Initialize the ExamSyncService.
@@ -41,30 +41,30 @@ class ExamSyncService(BaseSyncService):
         Args:
             session: SQLAlchemy async session
             driver: Neo4j async driver
-            exam_repository: Optional ExamRepository instance
-            exam_graph_repository: Optional ExamGraphRepository instance
+            sql_repository: Optional ExamRepository instance
+            graph_repository: Optional ExamGraphRepository instance
         """
+        super().__init__(session, driver, sql_repository, graph_repository)
         self.session = session
         self.driver = driver
-        self.exam_repository = exam_repository or ExamRepository(session)
-        self.exam_graph_repository = exam_graph_repository or ExamGraphRepository(driver)
+        self.sql_repository = sql_repository or ExamRepository(session)
+        self.graph_repository = graph_repository or ExamGraphRepository(driver)
     
-    async def sync_by_id(self, exam_id: str, skip_relationships: bool = False) -> bool:
+    async def sync_node_by_id(self, exam_id: str) -> bool:
         """
-        Synchronize a specific exam by ID.
+        Synchronize a specific exam node by ID, only creating the node and INSTANCE_OF relationship.
         
         Args:
             exam_id: The ID of the exam to sync
-            skip_relationships: If True, only sync node without its relationships
             
         Returns:
             True if sync was successful, False otherwise
         """
-        logger.info(f"Synchronizing exam {exam_id} (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing exam node {exam_id}")
         
         try:
             # Get exam from SQL database
-            exam = await self.exam_repository.get_by_id(exam_id)
+            exam = await self.sql_repository.get_by_id(exam_id)
             if not exam:
                 logger.error(f"Exam {exam_id} not found in SQL database")
                 return False
@@ -73,19 +73,16 @@ class ExamSyncService(BaseSyncService):
             neo4j_data = self._convert_to_node(exam)
             
             # Create or update node in Neo4j
-            await self.exam_graph_repository.create_or_update(neo4j_data)
+            result = await self.graph_repository.create_or_update(neo4j_data)
             
-            # Sync relationships if needed
-            if not skip_relationships:
-                await self.sync_relationships(exam_id)
-            
-            return True
+            logger.info(f"Successfully synchronized exam node {exam_id}")
+            return result
             
         except Exception as e:
-            logger.error(f"Error syncing exam {exam_id}: {e}")
+            logger.error(f"Error syncing exam node {exam_id}: {e}")
             return False
     
-    async def sync_relationships(self, exam_id: str) -> Dict[str, int]:
+    async def sync_relationship_by_id(self, exam_id: str) -> Dict[str, int]:
         """
         Synchronize relationships for a specific exam.
         
@@ -97,6 +94,18 @@ class ExamSyncService(BaseSyncService):
         """
         logger.info(f"Synchronizing relationships for exam {exam_id}")
         
+        # Check if exam node exists before syncing relationships
+        exam_node = await self.graph_repository.get_by_id(exam_id)
+        if not exam_node:
+            logger.warning(f"Exam node {exam_id} not found in Neo4j, skipping relationship sync")
+            return {
+                "error": "Exam node not found in Neo4j",
+                "management_units": 0,
+                "locations": 0,
+                "schedules": 0,
+                "subjects": 0
+            }
+        
         relationship_counts = {
             "management_units": 0,
             "locations": 0,
@@ -106,7 +115,7 @@ class ExamSyncService(BaseSyncService):
         
         try:
             # Get exam from SQL database with details
-            exam = await self.exam_repository.get_by_id(exam_id)
+            exam = await self.sql_repository.get_by_id(exam_id)
             if not exam:
                 logger.error(f"Exam {exam_id} not found in SQL database")
                 return relationship_counts
@@ -121,7 +130,7 @@ class ExamSyncService(BaseSyncService):
             if "exams" in exam:
                 relationship_counts["locations"] = len(exam.get("exams", []))
             
-            logger.info(f"Exam relationship synchronization completed for {exam_id}")
+            logger.info(f"Exam relationship synchronization completed for {exam_id}: {relationship_counts}")
             return relationship_counts
             
         except Exception as e:
@@ -139,7 +148,7 @@ class ExamSyncService(BaseSyncService):
         
         # Sync ORGANIZED_BY relationship with management unit
         if "organizing_unit_id" in exam and exam["organizing_unit_id"]:
-            await self.exam_graph_repository.add_organized_by_relationship(
+            await self.graph_repository.add_organized_by_relationship(
                 exam_id, 
                 exam["organizing_unit_id"]
             )
@@ -148,53 +157,137 @@ class ExamSyncService(BaseSyncService):
         if "exams" in exam:  # This would contain location mappings if get_by_id returns that info
             for location_mapping in exam.get("exams", []):
                 if "location_id" in location_mapping:
-                    await self.exam_graph_repository.add_held_at_relationship(
+                    await self.graph_repository.add_held_at_relationship(
                         exam_id, 
                         location_mapping["location_id"]
                     )
     
-    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
+    async def sync_all_nodes(self, limit: Optional[int] = None) -> Tuple[int, int]:
         """
-        Synchronize all exams.
+        Synchronize all exam nodes, without their relationships (except INSTANCE_OF).
         
         Args:
             limit: Optional limit on number of exams to sync
-            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Tuple of (success_count, failed_count) or dict with success/failed counts
+            Tuple of (success_count, failed_count)
         """
-        logger.info(f"Synchronizing all exams (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing all exam nodes (limit={limit})")
         
         try:
             # Get all exams from SQL database
-            exams, _ = await self.exam_repository.get_all(limit=limit)
+            exams, _ = await self.sql_repository.get_all(limit=limit)
             
             success_count = 0
             failed_count = 0
             
             for exam in exams:
                 try:
-                    # Sync the exam node
+                    # Sync only the exam node
                     exam_id = exam.exam_id if hasattr(exam, 'exam_id') else exam.get("exam_id")
                     if not exam_id:
                         logger.error(f"Missing exam_id in exam object: {exam}")
                         failed_count += 1
                         continue
                         
-                    await self.sync_by_id(exam_id, skip_relationships=skip_relationships)
-                    success_count += 1
+                    if await self.sync_node_by_id(exam_id):
+                        success_count += 1
+                    else:
+                        failed_count += 1
                 except Exception as e:
                     # Get exam_id safely for logging
                     exam_id = getattr(exam, 'exam_id', None) if hasattr(exam, 'exam_id') else exam.get("exam_id", "unknown")
-                    logger.error(f"Error syncing exam {exam_id}: {e}")
+                    logger.error(f"Error syncing exam node {exam_id}: {e}")
                     failed_count += 1
             
+            logger.info(f"Completed synchronizing exam nodes: {success_count} successful, {failed_count} failed")
             return (success_count, failed_count)
             
         except Exception as e:
-            logger.error(f"Error during exam synchronization: {e}")
-            return {"success": 0, "failed": 0}
+            logger.error(f"Error during exam nodes synchronization: {e}")
+            return (0, 0)
+    
+    async def sync_all_relationships(self, limit: Optional[int] = None) -> Dict[str, int]:
+        """
+        Synchronize relationships for all exams.
+        
+        Args:
+            limit: Optional maximum number of exams to process
+            
+        Returns:
+            Dictionary with counts of synced relationships by type
+        """
+        logger.info(f"Synchronizing relationships for all exams (limit={limit})")
+        
+        try:
+            # Get all exams from SQL database
+            exams, total_count = await self.sql_repository.get_all(limit=limit)
+            
+            total_exams = len(exams)
+            success_count = 0
+            failure_count = 0
+            
+            # Aggregated counts for all relationship types
+            relationship_counts = {
+                "management_units": 0,
+                "locations": 0,
+                "schedules": 0,
+                "subjects": 0
+            }
+            
+            # For each exam, sync relationships
+            for exam in exams:
+                try:
+                    # Get exam_id safely - handle both ORM objects and dictionaries
+                    exam_id = exam.exam_id if hasattr(exam, 'exam_id') else exam.get("exam_id")
+                    if not exam_id:
+                        logger.error(f"Missing exam_id in exam object: {exam}")
+                        failure_count += 1
+                        continue
+                    
+                    # Verify exam exists in Neo4j
+                    exam_node = await self.graph_repository.get_by_id(exam_id)
+                    if not exam_node:
+                        logger.warning(f"Exam {exam_id} not found in Neo4j, skipping relationship sync")
+                        failure_count += 1
+                        continue
+                    
+                    # Sync relationships for this exam
+                    results = await self.sync_relationship_by_id(exam_id)
+                    
+                    # Update aggregated counts
+                    for key, value in results.items():
+                        if key in relationship_counts:
+                            relationship_counts[key] += value
+                    
+                    success_count += 1
+                    
+                except Exception as e:
+                    # Get exam_id safely for logging
+                    exam_id = getattr(exam, 'exam_id', None) if hasattr(exam, 'exam_id') else exam.get("exam_id", "unknown")
+                    logger.error(f"Error synchronizing relationships for exam {exam_id}: {e}")
+                    failure_count += 1
+            
+            # Prepare final result
+            result = {
+                "total_exams": total_exams,
+                "success": success_count,
+                "failed": failure_count,
+                "relationships": relationship_counts
+            }
+            
+            logger.info(f"Completed synchronizing relationships for all exams: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during exam relationships synchronization: {e}")
+            return {
+                "total_exams": 0,
+                "success": 0,
+                "failed": 0,
+                "error": str(e),
+                "relationships": {}
+            }
     
     def _convert_to_node(self, exam: Dict[str, Any]) -> ExamNode:
         """

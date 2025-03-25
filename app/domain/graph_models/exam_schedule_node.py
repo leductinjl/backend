@@ -224,11 +224,6 @@ class ExamScheduleNode:
             
             return cls(
                 schedule_id=schedule_id,
-                exam_id=schedule_model.get('exam_id'),
-                subject_id=schedule_model.get('subject_id'),
-                exam_subject_id=schedule_model.get('exam_subject_id'),
-                location_id=schedule_model.get('location_id'),
-                room_id=schedule_model.get('room_id'),
                 start_time=schedule_model.get('start_time'),
                 end_time=schedule_model.get('end_time'),
                 description=schedule_model.get('description'),
@@ -256,11 +251,6 @@ class ExamScheduleNode:
             
             node = cls(
                 schedule_id=schedule_id,
-                exam_id=getattr(schedule_model, 'exam_id', None),
-                subject_id=getattr(schedule_model, 'subject_id', None),
-                exam_subject_id=getattr(schedule_model, 'exam_subject_id', None),
-                location_id=getattr(schedule_model, 'location_id', None),
-                room_id=getattr(schedule_model, 'room_id', None),
                 start_time=getattr(schedule_model, 'start_time', None),
                 end_time=getattr(schedule_model, 'end_time', None),
                 description=getattr(schedule_model, 'description', None),

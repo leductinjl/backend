@@ -833,24 +833,6 @@ IN_EXAM = {
     """
 }
 
-TEACHES_SUBJECT = {
-    "type": "TEACHES_SUBJECT",
-    "description": "Relationship between a Major and a Subject",
-    "properties": {
-        "is_mandatory": "Whether the subject is mandatory",
-        "credits": "Number of credits"
-    },
-    "create_query": """
-    MATCH (m:Major {major_id: $major_id})
-    MATCH (s:Subject {subject_id: $subject_id})
-    MERGE (m)-[r:TEACHES_SUBJECT {
-        is_mandatory: $is_mandatory,
-        credits: $credits
-    }]->(s)
-    RETURN r
-    """
-}
-
 INCLUDES_SUBJECT = {
     "type": "INCLUDES_SUBJECT",
     "description": "Relationship between an Exam and a Subject",
@@ -1203,6 +1185,33 @@ SCHEDULES_SUBJECT = {
     """
 }
 
+# Relationship between ExamSchedule and Subject (direct)
+SCHEDULES_DIRECT_SUBJECT = {
+    "type": "SCHEDULES_DIRECT_SUBJECT",
+    "description": "Direct relationship between an ExamSchedule and a Subject, representing a subject scheduled for examination",
+    "properties": {
+        "duration_minutes": "Duration of the exam for this subject",
+        "max_score": "Maximum possible score",
+        "passing_score": "Minimum score required to pass",
+        "weight": "Weight of this subject in the overall exam",
+        "is_required": "Whether this subject is mandatory",
+        "exam_id": "ID of the exam this schedule belongs to"
+    },
+    "create_query": """
+    MATCH (s:ExamSchedule {schedule_id: $schedule_id})
+    MATCH (sub:Subject {subject_id: $subject_id})
+    MERGE (s)-[rel:SCHEDULES_DIRECT_SUBJECT {
+        duration_minutes: $duration_minutes,
+        max_score: $max_score,
+        passing_score: $passing_score,
+        weight: $weight,
+        is_required: $is_required,
+        exam_id: $exam_id
+    }]->(sub)
+    RETURN rel
+    """
+}
+
 # Relationship between ExamSchedule and ExamLocation
 SCHEDULE_AT = {
     "type": "SCHEDULE_AT",
@@ -1288,7 +1297,6 @@ RELATIONSHIPS = {
     "OFFERS_MAJOR": OFFERS_MAJOR,
     "FOR_SUBJECT": FOR_SUBJECT,
     "IN_EXAM": IN_EXAM,
-    "TEACHES_SUBJECT": TEACHES_SUBJECT,
     "INCLUDES_SUBJECT": INCLUDES_SUBJECT,
     "FOLLOWS_SCHEDULE": FOLLOWS_SCHEDULE,
     "HELD_AT": HELD_AT,
@@ -1306,6 +1314,7 @@ RELATIONSHIPS = {
     "ISSUED_BY": ISSUED_BY,
     "ASSIGNED_TO": ASSIGNED_TO,
     "SCHEDULES_SUBJECT": SCHEDULES_SUBJECT,
+    "SCHEDULES_DIRECT_SUBJECT": SCHEDULES_DIRECT_SUBJECT,
     "SCHEDULE_AT": SCHEDULE_AT,
     "REVIEWS": REVIEWS
 } 

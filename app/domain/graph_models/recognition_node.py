@@ -121,8 +121,8 @@ class RecognitionNode:
             "recognition_id": self.recognition_id,
             "recognition_name": self.recognition_name,
             "name": self.name,
-            "candidate_id": self.candidate_id,
-            "exam_id": self.exam_id,
+            "candidate_id": self.candidate_id,  # Vẫn giữ để sử dụng trong mối quan hệ, nhưng không lưu vào node
+            "exam_id": self.exam_id,  # Vẫn giữ để sử dụng trong mối quan hệ, nhưng không lưu vào node
             "recognition_type": self.recognition_type,
             "recognition_date": self.recognition_date,
             "description": self.description,
@@ -141,11 +141,8 @@ class RecognitionNode:
         Returns:
             RecognitionNode instance
         """
-        # Kiểm tra và trích xuất candidate_id và exam_id
-        candidate_id = None
-        exam_id = None
-        
         if isinstance(recognition_model, dict):
+            # Trường hợp recognition_model là dictionary
             recognition_id = recognition_model.get('recognition_id', 'unknown')
             
             # Lấy title cho recognition_name
@@ -153,25 +150,9 @@ class RecognitionNode:
             if not recognition_name:
                 recognition_name = recognition_model.get('title', f"Recognition {recognition_id}")
             
-            # Trích xuất candidate_id và exam_id từ candidate_exam nếu có
-            if 'candidate_id' in recognition_model:
-                candidate_id = recognition_model['candidate_id']
-            elif 'candidate_exam' in recognition_model and recognition_model['candidate_exam']:
-                candidate_exam = recognition_model['candidate_exam']
-                if isinstance(candidate_exam, dict):
-                    candidate_id = candidate_exam.get('candidate_id')
-                    exam_id = candidate_exam.get('exam_id')
-                else:
-                    if hasattr(candidate_exam, 'candidate_id'):
-                        candidate_id = candidate_exam.candidate_id
-                    if hasattr(candidate_exam, 'exam_id'):
-                        exam_id = candidate_exam.exam_id
-            
             return cls(
                 recognition_id=recognition_id,
                 recognition_name=recognition_name,
-                candidate_id=candidate_id,
-                exam_id=exam_id,
                 recognition_type=recognition_model.get('recognition_type'),
                 recognition_date=recognition_model.get('issue_date'),
                 description=recognition_model.get('description'),
@@ -187,19 +168,9 @@ class RecognitionNode:
             if not recognition_name:
                 recognition_name = getattr(recognition_model, 'title', f"Recognition {recognition_id}")
             
-            # Trích xuất candidate_id và exam_id từ candidate_exam
-            if hasattr(recognition_model, 'candidate_exam') and recognition_model.candidate_exam:
-                candidate_exam = recognition_model.candidate_exam
-                if hasattr(candidate_exam, 'candidate_id'):
-                    candidate_id = candidate_exam.candidate_id
-                if hasattr(candidate_exam, 'exam_id'):
-                    exam_id = candidate_exam.exam_id
-            
             return cls(
                 recognition_id=recognition_id,
                 recognition_name=recognition_name,
-                candidate_id=candidate_id,
-                exam_id=exam_id,
                 recognition_type=getattr(recognition_model, 'recognition_type', None),
                 recognition_date=getattr(recognition_model, 'issue_date', None),
                 description=getattr(recognition_model, 'description', None),

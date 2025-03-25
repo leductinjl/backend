@@ -175,11 +175,6 @@ class DegreeNode:
         Returns:
             DegreeNode instance
         """
-        candidate_id = None
-        
-        if candidate_degree:
-            candidate_id = candidate_degree.candidate_id
-        
         # Tạo tên mặc định nếu không có
         degree_name = f"Degree {sql_model.degree_id}"
         
@@ -189,9 +184,6 @@ class DegreeNode:
         return cls(
             degree_id=sql_model.degree_id,
             degree_name=degree_name,
-            candidate_id=candidate_id,
-            major_id=getattr(sql_model, 'major_id', None),
-            school_id=getattr(sql_model, 'school_id', None),
             degree_type=degree_type,
             issue_date=None,  # Không có trong model
             issuing_organization=None,  # Không có trong model

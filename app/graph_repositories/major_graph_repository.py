@@ -47,11 +47,6 @@ class MajorGraphRepository:
                 major.to_dict()
             )
             
-            # Create relationships
-            relationships_query = major.create_relationships_query()
-            if relationships_query:
-                await self.neo4j.execute_query(relationships_query, major.to_dict())
-            
             # Create INSTANCE_OF relationship if the method exists
             if hasattr(major, 'create_instance_of_relationship_query'):
                 instance_query = major.create_instance_of_relationship_query()

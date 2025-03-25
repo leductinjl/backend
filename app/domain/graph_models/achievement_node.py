@@ -144,33 +144,13 @@ class AchievementNode:
         Returns:
             AchievementNode instance
         """
-        # Kiểm tra và trích xuất candidate_id và exam_id
-        candidate_id = None
-        exam_id = None
-        
         if isinstance(achievement_model, dict):
             achievement_id = achievement_model.get('achievement_id', 'unknown')
             achievement_name = achievement_model.get('achievement_name')
             
-            # Trích xuất candidate_id và exam_id từ candidate_exam nếu có
-            if 'candidate_id' in achievement_model:
-                candidate_id = achievement_model['candidate_id']
-            elif 'candidate_exam' in achievement_model and achievement_model['candidate_exam']:
-                candidate_exam = achievement_model['candidate_exam']
-                if isinstance(candidate_exam, dict):
-                    candidate_id = candidate_exam.get('candidate_id')
-                    exam_id = candidate_exam.get('exam_id')
-                else:
-                    if hasattr(candidate_exam, 'candidate_id'):
-                        candidate_id = candidate_exam.candidate_id
-                    if hasattr(candidate_exam, 'exam_id'):
-                        exam_id = candidate_exam.exam_id
-            
             return cls(
                 achievement_id=achievement_id,
                 achievement_name=achievement_name,
-                candidate_id=candidate_id,
-                exam_id=exam_id,
                 achievement_type=achievement_model.get('achievement_type'),
                 achievement_date=achievement_model.get('achievement_date'),
                 issuing_organization=achievement_model.get('organization'),
@@ -183,19 +163,9 @@ class AchievementNode:
             achievement_id = getattr(achievement_model, 'achievement_id', 'unknown')
             achievement_name = getattr(achievement_model, 'achievement_name', f"Achievement {achievement_id}")
             
-            # Trích xuất candidate_id và exam_id từ candidate_exam
-            if hasattr(achievement_model, 'candidate_exam') and achievement_model.candidate_exam:
-                candidate_exam = achievement_model.candidate_exam
-                if hasattr(candidate_exam, 'candidate_id'):
-                    candidate_id = candidate_exam.candidate_id
-                if hasattr(candidate_exam, 'exam_id'):
-                    exam_id = candidate_exam.exam_id
-            
             return cls(
                 achievement_id=achievement_id,
                 achievement_name=achievement_name,
-                candidate_id=candidate_id,
-                exam_id=exam_id,
                 achievement_type=getattr(achievement_model, 'achievement_type', None),
                 achievement_date=getattr(achievement_model, 'achievement_date', None),
                 issuing_organization=getattr(achievement_model, 'organization', None),

@@ -42,14 +42,10 @@ class AwardGraphRepository:
             query = AwardNode.create_query()
             result = await self.neo4j.execute_query(query, params)
             
-            # Create relationships if possible
+            # Create INSTANCE_OF relationship only
             if result and len(result) > 0:
                 # Create INSTANCE_OF relationship with Award class
                 await self._create_instance_of_relationship(params.get('award_id'))
-                
-                if hasattr(award, 'create_relationships_query'):
-                    rel_query = award.create_relationships_query()
-                    await self.neo4j.execute_query(rel_query, params)
                 return True
             return False
         except Exception as e:

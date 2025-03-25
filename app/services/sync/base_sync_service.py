@@ -7,7 +7,7 @@ the interface for synchronization services between PostgreSQL and Neo4j.
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Union, TypeVar, Generic, Tuple
+from typing import Any, Dict, List, Optional, Union, TypeVar, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from neo4j import AsyncDriver
@@ -23,8 +23,8 @@ class BaseSyncService(ABC):
     Abstract base class for synchronization services.
     
     This class provides the common structure and utility methods for services
-    that synchronize data between PostgreSQL and Neo4j, ensuring proper
-    handling of ontology relationships.
+    that synchronize data between PostgreSQL and Neo4j, with clear separation 
+    between node synchronization and relationship synchronization.
     """
     
     def __init__(
@@ -49,13 +49,12 @@ class BaseSyncService(ABC):
         self.graph_repository = graph_repository
     
     @abstractmethod
-    async def sync_by_id(self, entity_id: str, skip_relationships: bool = False) -> bool:
+    async def sync_node_by_id(self, entity_id: str) -> bool:
         """
-        Synchronize a single entity by ID.
+        Synchronize a single node by ID, including only INSTANCE_OF relationship.
         
         Args:
             entity_id: ID of the entity to sync
-            skip_relationships: If True, only sync node without its relationships
             
         Returns:
             bool: True if sync successful, False otherwise
@@ -63,16 +62,41 @@ class BaseSyncService(ABC):
         pass
     
     @abstractmethod
-    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
+    async def sync_all_nodes(self, limit: Optional[int] = None) -> Tuple[int, int]:
         """
-        Synchronize all entities of a specific type.
+        Synchronize all nodes of a specific type, without relationships (except INSTANCE_OF).
         
         Args:
             limit: Optional maximum number of entities to sync
-            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Tuple of (success_count, failed_count) or dict with success/failed counts
+            Tuple of (success_count, failed_count)
+        """
+        pass
+    
+    @abstractmethod
+    async def sync_relationship_by_id(self, entity_id: str) -> Dict[str, int]:
+        """
+        Synchronize all relationships for a specific entity (node must already exist).
+        
+        Args:
+            entity_id: ID of the entity to synchronize relationships for
+            
+        Returns:
+            Dictionary with counts of successfully synced relationships by type
+        """
+        pass
+    
+    @abstractmethod
+    async def sync_all_relationships(self, limit: Optional[int] = None) -> Dict[str, int]:
+        """
+        Synchronize all relationships for all entities of a specific type.
+        
+        Args:
+            limit: Optional maximum number of entities to process
+            
+        Returns:
+            Dictionary with counts of successfully synced relationships by type
         """
         pass
     
@@ -88,23 +112,6 @@ class BaseSyncService(ABC):
             Graph node instance
         """
         pass
-    
-    @abstractmethod
-    async def sync_relationships(self, entity_id: str) -> Dict[str, int]:
-        """
-        Synchronize all relationships for a specific entity.
-        
-        This is a default implementation that returns an empty result.
-        Override this method in subclasses that need to synchronize relationships.
-        
-        Args:
-            entity_id: ID of the entity to synchronize relationships for
-            
-        Returns:
-            Dictionary with counts of successfully synced relationships by type
-        """
-        logging.getLogger(__name__).info(f"No relationship synchronization implemented for entity ID: {entity_id}")
-        return {}
     
     def _log_sync_result(self, entity_type: str, success_count: int, failure_count: int, total_count: int) -> None:
         """

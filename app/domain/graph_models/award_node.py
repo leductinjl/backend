@@ -149,36 +149,16 @@ class AwardNode:
             else:
                 award_name = f"Award {sql_model.award_id}"
         
-        # Lấy thông tin candidate_id và exam_id nếu có
-        candidate_id = None
-        exam_id = None
-        
-        if hasattr(sql_model, 'candidate_id'):
-            candidate_id = sql_model.candidate_id
-        
-        if hasattr(sql_model, 'exam_id'):
-            exam_id = sql_model.exam_id
-        
-        # Trích xuất từ candidate_exam nếu có
-        if hasattr(sql_model, 'candidate_exam') and sql_model.candidate_exam:
-            if hasattr(sql_model.candidate_exam, 'candidate_id'):
-                candidate_id = sql_model.candidate_exam.candidate_id
-            if hasattr(sql_model.candidate_exam, 'exam_id'):
-                exam_id = sql_model.candidate_exam.exam_id
-        
+        # Tạo node chỉ với thông tin cơ bản
         award = cls(
             award_id=sql_model.award_id,
             award_name=award_name,
             award_type=getattr(sql_model, 'award_type', None),
             award_date=getattr(sql_model, 'award_date', None),
             description=getattr(sql_model, 'achievement', None),
-            candidate_id=candidate_id,
             award_image_url=getattr(sql_model, 'certificate_image_url', None),
             additional_info=getattr(sql_model, 'additional_info', None)
         )
-        
-        # Lưu exam_id như một thuộc tính bổ sung
-        award.exam_id = exam_id
         
         return award
         

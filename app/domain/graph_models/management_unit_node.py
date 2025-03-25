@@ -153,7 +153,6 @@ class ManagementUnitNode:
             unit_type=getattr(unit_model, 'unit_type', None),
             address=getattr(unit_model, 'address', None),
             contact_info=getattr(unit_model, 'contact_info', None),
-            parent_id=getattr(unit_model, 'parent_id', None),
             level=getattr(unit_model, 'level', None),
             region=getattr(unit_model, 'region', None),
             status=getattr(unit_model, 'status', None),

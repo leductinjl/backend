@@ -130,43 +130,41 @@ class ExamRoomNode:
         }
     
     @classmethod
-    def from_sql_model(cls, room_model):
+    def from_sql_model(cls, sql_model):
         """
         Tạo đối tượng ExamRoomNode từ SQLAlchemy ExamRoom model.
         
         Args:
-            room_model: SQLAlchemy ExamRoom instance hoặc dictionary
+            sql_model: SQLAlchemy ExamRoom instance hoặc dictionary
             
         Returns:
             ExamRoomNode instance
         """
-        if isinstance(room_model, dict):
-            # Trường hợp room_model là dictionary
+        if isinstance(sql_model, dict):
+            # Trường hợp sql_model là dictionary
             return cls(
-                room_id=room_model.get('exam_room_id') or room_model.get('room_id'),
-                room_name=room_model.get('room_name'),
-                location_id=room_model.get('location_id'),
-                capacity=room_model.get('capacity'),
-                floor=room_model.get('floor'),
-                room_number=room_model.get('room_number'),
-                room_type=room_model.get('room_type'),
-                status=room_model.get('is_active'),
-                room_facilities=room_model.get('room_facilities'),
-                additional_info=room_model.get('additional_info')
+                room_id=sql_model.get('exam_room_id') or sql_model.get('room_id'),
+                room_name=sql_model.get('room_name'),
+                capacity=sql_model.get('capacity'),
+                floor=sql_model.get('floor'),
+                room_number=sql_model.get('room_number'),
+                room_type=sql_model.get('room_type'),
+                status=sql_model.get('is_active'),
+                room_facilities=sql_model.get('room_facilities'),
+                additional_info=sql_model.get('additional_info')
             )
         else:
-            # Trường hợp room_model là SQLAlchemy model
+            # Trường hợp sql_model là SQLAlchemy model
             return cls(
-                room_id=getattr(room_model, 'exam_room_id', None) or getattr(room_model, 'room_id', None),
-                room_name=getattr(room_model, 'room_name', None),
-                location_id=getattr(room_model, 'location_id', None),
-                capacity=getattr(room_model, 'capacity', None),
-                floor=getattr(room_model, 'floor', None),
-                room_number=getattr(room_model, 'room_number', None),
-                room_type=getattr(room_model, 'room_type', None),
-                status=getattr(room_model, 'is_active', None),
-                room_facilities=getattr(room_model, 'room_facilities', None),
-                additional_info=getattr(room_model, 'additional_info', None)
+                room_id=getattr(sql_model, 'exam_room_id', None) or getattr(sql_model, 'room_id', None),
+                room_name=getattr(sql_model, 'room_name', None),
+                capacity=getattr(sql_model, 'capacity', None),
+                floor=getattr(sql_model, 'floor', None),
+                room_number=getattr(sql_model, 'room_number', None),
+                room_type=getattr(sql_model, 'room_type', None),
+                status=getattr(sql_model, 'is_active', None),
+                room_facilities=getattr(sql_model, 'room_facilities', None),
+                additional_info=getattr(sql_model, 'additional_info', None)
             )
         
     @staticmethod

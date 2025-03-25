@@ -44,6 +44,7 @@ class ExamLocationGraphRepository:
             query = ExamLocationNode.create_query()
             result = await self.neo4j.execute_query(query, params)
             
+            # Create INSTANCE_OF relationship only
             if result and len(result) > 0:
                 # Create INSTANCE_OF relationship
                 if hasattr(location, 'create_instance_of_relationship_query'):

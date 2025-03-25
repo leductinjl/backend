@@ -33,8 +33,8 @@ class AwardSyncService(BaseSyncService):
         self,
         session: AsyncSession,
         driver: AsyncDriver,
-        award_repository: Optional[AwardRepository] = None,
-        award_graph_repository: Optional[AwardGraphRepository] = None
+        sql_repository: Optional[AwardRepository] = None,
+        graph_repository: Optional[AwardGraphRepository] = None
     ):
         """
         Initialize the AwardSyncService.
@@ -42,30 +42,30 @@ class AwardSyncService(BaseSyncService):
         Args:
             session: SQLAlchemy async session
             driver: Neo4j async driver
-            award_repository: Optional AwardRepository instance
-            award_graph_repository: Optional AwardGraphRepository instance
+            sql_repository: Optional AwardRepository instance
+            graph_repository: Optional AwardGraphRepository instance
         """
+        super().__init__(session, driver, sql_repository, graph_repository)
         self.session = session
         self.driver = driver
-        self.award_repository = award_repository or AwardRepository(session)
-        self.award_graph_repository = award_graph_repository or AwardGraphRepository(driver)
+        self.sql_repository = sql_repository or AwardRepository(session)
+        self.graph_repository = graph_repository or AwardGraphRepository(driver)
     
-    async def sync_by_id(self, award_id: str, skip_relationships: bool = False) -> bool:
+    async def sync_node_by_id(self, award_id: str) -> bool:
         """
-        Synchronize a specific award by ID.
+        Synchronize a specific award node by ID, only creating the node and INSTANCE_OF relationship.
         
         Args:
             award_id: The ID of the award to sync
-            skip_relationships: If True, only sync node without its relationships
             
         Returns:
             True if sync was successful, False otherwise
         """
-        logger.info(f"Synchronizing award {award_id} (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing award node {award_id}")
         
         try:
             # Get award from SQL database
-            award = await self.award_repository.get_by_id(award_id)
+            award = await self.sql_repository.get_by_id(award_id)
             if not award:
                 logger.error(f"Award {award_id} not found in SQL database")
                 return False
@@ -74,30 +74,26 @@ class AwardSyncService(BaseSyncService):
             neo4j_data = self._convert_to_node(award)
             
             # Create or update node in Neo4j
-            await self.award_graph_repository.create_or_update(neo4j_data)
+            result = await self.graph_repository.create_or_update(neo4j_data)
             
-            # Sync relationships if needed
-            if not skip_relationships:
-                await self.sync_relationships(award_id)
-            
-            return True
+            logger.info(f"Successfully synchronized award node {award_id}")
+            return result
             
         except Exception as e:
-            logger.error(f"Error syncing award {award_id}: {e}")
+            logger.error(f"Error syncing award node {award_id}: {e}")
             return False
     
-    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
+    async def sync_all_nodes(self, limit: Optional[int] = None) -> Tuple[int, int]:
         """
-        Synchronize all awards.
+        Synchronize all award nodes, without their relationships (except INSTANCE_OF).
         
         Args:
             limit: Optional limit on number of awards to sync
-            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Tuple of (success_count, failed_count) or dict with success/failed counts
+            Tuple of (success_count, failed_count)
         """
-        logger.info(f"Synchronizing all awards (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing all award nodes (limit={limit})")
         
         try:
             # Get all awards from SQL database
@@ -113,26 +109,29 @@ class AwardSyncService(BaseSyncService):
             
             for award in awards:
                 try:
-                    # Sync the award node - handle both ORM objects and dictionaries
+                    # Sync only the award node - handle both ORM objects and dictionaries
                     award_id = award.award_id if hasattr(award, 'award_id') else award.get("award_id")
                     if not award_id:
                         logger.error(f"Missing award_id in award object: {award}")
                         failed_count += 1
                         continue
                         
-                    await self.sync_by_id(award_id, skip_relationships=skip_relationships)
-                    success_count += 1
+                    if await self.sync_node_by_id(award_id):
+                        success_count += 1
+                    else:
+                        failed_count += 1
                 except Exception as e:
                     # Get award_id safely for logging
                     award_id = getattr(award, 'award_id', None) if hasattr(award, 'award_id') else award.get("award_id", "unknown")
-                    logger.error(f"Error syncing award {award_id}: {e}")
+                    logger.error(f"Error syncing award node {award_id}: {e}")
                     failed_count += 1
             
+            logger.info(f"Completed synchronizing award nodes: {success_count} successful, {failed_count} failed")
             return (success_count, failed_count)
             
         except Exception as e:
-            logger.error(f"Error during award synchronization: {e}")
-            return {"success": 0, "failed": 0}
+            logger.error(f"Error during award nodes synchronization: {e}")
+            return (0, 0)
     
     def _convert_to_node(self, award: Award) -> AwardNode:
         """
@@ -144,11 +143,28 @@ class AwardSyncService(BaseSyncService):
         Returns:
             AwardNode instance ready for Neo4j
         """
-        # Create the Neo4j node from the SQL model
-        award_node = AwardNode.from_sql_model(award)
-        return award_node
+        # Tạo award_name từ achievement hoặc award_type nếu không có award_name
+        award_name = getattr(award, 'award_name', None)
+        if not award_name:
+            if hasattr(award, 'achievement') and award.achievement:
+                award_name = award.achievement
+            elif hasattr(award, 'award_type') and award.award_type:
+                award_name = award.award_type
+            else:
+                award_name = f"Award {award.award_id}"
+                
+        # Tạo AwardNode trực tiếp với chỉ thuộc tính node, không có thông tin relationship
+        return AwardNode(
+            award_id=award.award_id,
+            award_name=award_name,
+            award_type=getattr(award, 'award_type', None),
+            award_date=getattr(award, 'award_date', None),
+            description=getattr(award, 'achievement', None),
+            award_image_url=getattr(award, 'certificate_image_url', None),
+            additional_info=getattr(award, 'additional_info', None)
+        )
         
-    async def sync_relationships(self, award_id: str) -> Dict[str, int]:
+    async def sync_relationship_by_id(self, award_id: str) -> Dict[str, int]:
         """
         Synchronize relationships for a specific award.
         
@@ -160,6 +176,17 @@ class AwardSyncService(BaseSyncService):
         """
         logger.info(f"Synchronizing relationships for award {award_id}")
         
+        # Check if award node exists before syncing relationships
+        award_node = await self.graph_repository.get_by_id(award_id)
+        if not award_node:
+            logger.warning(f"Award node {award_id} not found in Neo4j, skipping relationship sync")
+            return {
+                "error": "Award node not found in Neo4j",
+                "candidate": 0,
+                "exam": 0,
+                "organization": 0
+            }
+        
         relationship_counts = {
             "candidate": 0,
             "exam": 0,
@@ -168,7 +195,7 @@ class AwardSyncService(BaseSyncService):
         
         try:
             # Get award from SQL database with full details
-            award = await self.award_repository.get_by_id(award_id)
+            award = await self.sql_repository.get_by_id(award_id)
             if not award:
                 logger.error(f"Award {award_id} not found in SQL database")
                 return relationship_counts
@@ -178,7 +205,7 @@ class AwardSyncService(BaseSyncService):
             
             # Sync AWARDED_TO relationship (award-candidate)
             if candidate_id:
-                success = await self.award_graph_repository.add_awarded_to_relationship(award_id, candidate_id)
+                success = await self.graph_repository.add_awarded_to_relationship(award_id, candidate_id)
                 if success:
                     relationship_counts["candidate"] += 1
             
@@ -189,9 +216,95 @@ class AwardSyncService(BaseSyncService):
                 # This is a placeholder for future implementation
                 relationship_counts["organization"] += 0
             
-            logger.info(f"Award relationship synchronization completed for {award_id}")
+            logger.info(f"Award relationship synchronization completed for {award_id}: {relationship_counts}")
             return relationship_counts
             
         except Exception as e:
             logger.error(f"Error synchronizing relationships for award {award_id}: {e}")
-            return relationship_counts 
+            return relationship_counts
+            
+    async def sync_all_relationships(self, limit: Optional[int] = None) -> Dict[str, int]:
+        """
+        Synchronize relationships for all awards.
+        
+        Args:
+            limit: Optional maximum number of awards to process
+            
+        Returns:
+            Dictionary with counts of synced relationships by type
+        """
+        logger.info(f"Synchronizing relationships for all awards (limit={limit})")
+        
+        try:
+            # Get all awards from SQL database
+            query = select(Award)
+            if limit:
+                query = query.limit(limit)
+                
+            result = await self.session.execute(query)
+            awards = result.scalars().all()
+            
+            total_awards = len(awards)
+            success_count = 0
+            failure_count = 0
+            
+            # Aggregated counts for all relationship types
+            relationship_counts = {
+                "candidate": 0,
+                "exam": 0,
+                "organization": 0
+            }
+            
+            # For each award, sync relationships
+            for award in awards:
+                try:
+                    # Get award_id safely - handle both ORM objects and dictionaries
+                    award_id = award.award_id if hasattr(award, 'award_id') else award.get("award_id")
+                    if not award_id:
+                        logger.error(f"Missing award_id in award object: {award}")
+                        failure_count += 1
+                        continue
+                    
+                    # Verify award exists in Neo4j
+                    award_node = await self.graph_repository.get_by_id(award_id)
+                    if not award_node:
+                        logger.warning(f"Award {award_id} not found in Neo4j, skipping relationship sync")
+                        failure_count += 1
+                        continue
+                    
+                    # Sync relationships for this award
+                    results = await self.sync_relationship_by_id(award_id)
+                    
+                    # Update aggregated counts
+                    for key, value in results.items():
+                        if key in relationship_counts:
+                            relationship_counts[key] += value
+                    
+                    success_count += 1
+                    
+                except Exception as e:
+                    # Get award_id safely for logging
+                    award_id = getattr(award, 'award_id', None) if hasattr(award, 'award_id') else award.get("award_id", "unknown")
+                    logger.error(f"Error synchronizing relationships for award {award_id}: {e}")
+                    failure_count += 1
+            
+            # Prepare final result
+            result = {
+                "total_awards": total_awards,
+                "success": success_count,
+                "failed": failure_count,
+                "relationships": relationship_counts
+            }
+            
+            logger.info(f"Completed synchronizing relationships for all awards: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during award relationships synchronization: {e}")
+            return {
+                "total_awards": 0,
+                "success": 0,
+                "failed": 0,
+                "error": str(e),
+                "relationships": {}
+            } 

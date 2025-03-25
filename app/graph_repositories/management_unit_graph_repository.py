@@ -70,12 +70,6 @@ class ManagementUnitGraphRepository:
                 params
             )
             
-            # Tạo các mối quan hệ
-            await self.neo4j.execute_query(
-                unit.create_relationships_query(),
-                params
-            )
-            
             # Create INSTANCE_OF relationship if the method exists
             if hasattr(unit, 'create_instance_of_relationship_query'):
                 await self.neo4j.execute_query(

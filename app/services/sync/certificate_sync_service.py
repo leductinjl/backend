@@ -33,8 +33,8 @@ class CertificateSyncService(BaseSyncService):
         self,
         session: AsyncSession,
         driver: AsyncDriver,
-        certificate_repository: Optional[CertificateRepository] = None,
-        certificate_graph_repository: Optional[CertificateGraphRepository] = None
+        sql_repository: Optional[CertificateRepository] = None,
+        graph_repository: Optional[CertificateGraphRepository] = None
     ):
         """
         Initialize the CertificateSyncService.
@@ -42,82 +42,214 @@ class CertificateSyncService(BaseSyncService):
         Args:
             session: SQLAlchemy async session
             driver: Neo4j async driver
-            certificate_repository: Optional CertificateRepository instance
-            certificate_graph_repository: Optional CertificateGraphRepository instance
+            sql_repository: Optional CertificateRepository instance
+            graph_repository: Optional CertificateGraphRepository instance
         """
+        super().__init__(session, driver, sql_repository, graph_repository)
         self.session = session
         self.driver = driver
-        self.certificate_repository = certificate_repository or CertificateRepository(session)
-        self.certificate_graph_repository = certificate_graph_repository or CertificateGraphRepository(driver)
+        self.sql_repository = sql_repository or CertificateRepository(session)
+        self.graph_repository = graph_repository or CertificateGraphRepository(driver)
     
-    async def sync_by_id(self, certificate_id: str, skip_relationships: bool = False) -> bool:
+    async def sync_node_by_id(self, certificate_id: str) -> bool:
         """
-        Synchronize a specific certificate by ID.
+        Synchronize a specific certificate node by ID, only creating the node and INSTANCE_OF relationship.
         
         Args:
             certificate_id: The ID of the certificate to sync
-            skip_relationships: If True, only sync node without its relationships
             
         Returns:
             True if sync was successful, False otherwise
         """
-        logger.info(f"Synchronizing certificate {certificate_id} (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing certificate node {certificate_id}")
         
         try:
             # Get certificate from SQL database with details
-            certificate = await self.certificate_repository.get_by_id(certificate_id)
+            certificate = await self.sql_repository.get_by_id(certificate_id)
             if not certificate:
                 logger.error(f"Certificate {certificate_id} not found in SQL database")
                 return False
             
             # Convert to Neo4j node and save
             certificate_node = self._convert_to_node(certificate)
-            await self.certificate_graph_repository.create_or_update(certificate_node)
+            result = await self.graph_repository.create_or_update(certificate_node)
             
-            # Sync relationships if needed
-            if not skip_relationships:
-                await self.sync_relationships(certificate_id)
-            
-            return True
+            logger.info(f"Successfully synchronized certificate node {certificate_id}")
+            return result
             
         except Exception as e:
-            logger.error(f"Error syncing certificate {certificate_id}: {e}")
+            logger.error(f"Error syncing certificate node {certificate_id}: {e}")
             return False
     
-    async def sync_all(self, limit: Optional[int] = None, skip_relationships: bool = False) -> Union[Tuple[int, int], Dict[str, int]]:
+    async def sync_all_nodes(self, limit: Optional[int] = None) -> Tuple[int, int]:
         """
-        Synchronize all certificates.
+        Synchronize all certificate nodes, without their relationships (except INSTANCE_OF).
         
         Args:
             limit: Optional limit on number of certificates to sync
-            skip_relationships: If True, only sync nodes without their relationships
             
         Returns:
-            Tuple of (success_count, failed_count) or dict with success/failed counts
+            Tuple of (success_count, failed_count)
         """
-        logger.info(f"Synchronizing all certificates (skip_relationships={skip_relationships})")
+        logger.info(f"Synchronizing all certificate nodes (limit={limit})")
         
         try:
             # Get all certificates from SQL database with details
-            certificates, _ = await self.certificate_repository.get_all(limit=limit)
+            certificates, _ = await self.sql_repository.get_all(limit=limit)
             
             success_count = 0
             failed_count = 0
             
             for certificate in certificates:
                 try:
-                    # Sync the certificate node
-                    await self.sync_by_id(certificate["certificate_id"], skip_relationships=skip_relationships)
+                    # Sync only the certificate node
+                    if await self.sync_node_by_id(certificate["certificate_id"]):
                     success_count += 1
+                    else:
+                        failed_count += 1
                 except Exception as e:
-                    logger.error(f"Error syncing certificate {certificate['certificate_id']}: {e}")
+                    logger.error(f"Error syncing certificate node {certificate['certificate_id']}: {e}")
                     failed_count += 1
             
+            logger.info(f"Completed synchronizing certificate nodes: {success_count} successful, {failed_count} failed")
             return (success_count, failed_count)
             
         except Exception as e:
-            logger.error(f"Error during certificate synchronization: {e}")
-            return {"success": 0, "failed": 0}
+            logger.error(f"Error during certificate nodes synchronization: {e}")
+            return (0, 0)
+    
+    async def sync_relationship_by_id(self, certificate_id: str) -> Dict[str, int]:
+        """
+        Synchronize relationships for a specific certificate.
+        
+        Args:
+            certificate_id: ID of the certificate to synchronize relationships for
+            
+        Returns:
+            Dictionary with counts of successfully synced relationships by type
+        """
+        logger.info(f"Synchronizing relationships for certificate {certificate_id}")
+        
+        # Check if certificate node exists before syncing relationships
+        certificate_node = await self.graph_repository.get_by_id(certificate_id)
+        if not certificate_node:
+            logger.warning(f"Certificate node {certificate_id} not found in Neo4j, skipping relationship sync")
+            return {
+                "error": "Certificate node not found in Neo4j",
+                "candidate": 0,
+                "exam": 0,
+                "issuing_organization": 0
+            }
+        
+        relationship_counts = {
+            "candidate": 0,
+            "exam": 0,
+            "issuing_organization": 0
+        }
+        
+        try:
+            # Get certificate from SQL database with full details
+            certificate = await self.sql_repository.get_by_id(certificate_id)
+            if not certificate:
+                logger.error(f"Certificate {certificate_id} not found in SQL database")
+                return relationship_counts
+            
+            # Extract candidate_id if available
+            candidate_id = certificate.get("candidate_id")
+            
+            # Sync ISSUED_TO relationship (certificate-candidate)
+            if candidate_id:
+                success = await self.graph_repository.add_issued_to_relationship(certificate_id, candidate_id)
+                if success:
+                    relationship_counts["candidate"] += 1
+            
+            # Extract exam_id if available
+            exam_id = certificate.get("exam_id")
+            
+            # Sync FOR_EXAM relationship (certificate-exam)
+            if exam_id:
+                success = await self.graph_repository.add_for_exam_relationship(certificate_id, exam_id)
+                if success:
+                    relationship_counts["exam"] += 1
+            
+            logger.info(f"Certificate relationship synchronization completed for {certificate_id}: {relationship_counts}")
+            return relationship_counts
+            
+        except Exception as e:
+            logger.error(f"Error synchronizing relationships for certificate {certificate_id}: {e}")
+            return relationship_counts
+    
+    async def sync_all_relationships(self, limit: Optional[int] = None) -> Dict[str, int]:
+        """
+        Synchronize relationships for all certificates.
+        
+        Args:
+            limit: Optional maximum number of certificates to process
+            
+        Returns:
+            Dictionary with counts of synced relationships by type
+        """
+        logger.info(f"Synchronizing relationships for all certificates (limit={limit})")
+        
+        try:
+            # Get all certificates from SQL database
+            certificates, total_count = await self.sql_repository.get_all(limit=limit)
+            
+            total_certificates = len(certificates)
+            success_count = 0
+            failure_count = 0
+            
+            # Aggregated counts for all relationship types
+            relationship_counts = {
+                "candidate": 0,
+                "exam": 0,
+                "issuing_organization": 0
+            }
+            
+            # For each certificate, sync relationships
+            for certificate in certificates:
+                try:
+                    # Verify certificate exists in Neo4j
+                    certificate_node = await self.graph_repository.get_by_id(certificate["certificate_id"])
+                    if not certificate_node:
+                        logger.warning(f"Certificate {certificate['certificate_id']} not found in Neo4j, skipping relationship sync")
+                        failure_count += 1
+                        continue
+                    
+                    # Sync relationships for this certificate
+                    results = await self.sync_relationship_by_id(certificate["certificate_id"])
+                    
+                    # Update aggregated counts
+                    for key, value in results.items():
+                        if key in relationship_counts:
+                            relationship_counts[key] += value
+                    
+                    success_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error synchronizing relationships for certificate {certificate['certificate_id']}: {e}")
+                    failure_count += 1
+            
+            # Prepare final result
+            result = {
+                "total_certificates": total_certificates,
+                "success": success_count,
+                "failed": failure_count,
+                "relationships": relationship_counts
+            }
+            
+            logger.info(f"Completed synchronizing relationships for all certificates: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error during certificate relationships synchronization: {e}")
+            return {
+                "total_certificates": 0,
+                "success": 0,
+                "failed": 0,
+                "error": str(e),
+                "relationships": {}
+            }
     
     def _convert_to_node(self, certificate: Dict[str, Any]) -> CertificateNode:
         """
@@ -130,17 +262,11 @@ class CertificateSyncService(BaseSyncService):
             CertificateNode instance ready for Neo4j
         """
         try:
-            # Extract candidate_id and exam_id from candidate_exam if needed
-            candidate_id = None
-            exam_id = None
-            
-            # Create the Neo4j node with relationships
+            # Tạo CertificateNode chỉ với thuộc tính cơ bản, không có thông tin relationship
             certificate_node = CertificateNode(
                 certificate_id=certificate["certificate_id"],
                 certificate_name=f"Certificate {certificate.get('certificate_number', '')}",
                 certificate_number=certificate.get("certificate_number"),
-                candidate_id=candidate_id,
-                exam_id=exam_id,
                 issue_date=certificate.get("issue_date"),
                 expiry_date=certificate.get("expiry_date"),
                 issuing_organization=None,  # Not in model, could be added if needed
@@ -158,53 +284,3 @@ class CertificateSyncService(BaseSyncService):
                 certificate_id=certificate["certificate_id"],
                 certificate_name=f"Certificate {certificate.get('certificate_id')}"
             )
-            
-    async def sync_relationships(self, certificate_id: str) -> Dict[str, int]:
-        """
-        Synchronize relationships for a specific certificate.
-        
-        Args:
-            certificate_id: ID of the certificate to synchronize relationships for
-            
-        Returns:
-            Dictionary with counts of successfully synced relationships by type
-        """
-        logger.info(f"Synchronizing relationships for certificate {certificate_id}")
-        
-        relationship_counts = {
-            "candidate": 0,
-            "exam": 0,
-            "issuing_organization": 0
-        }
-        
-        try:
-            # Get certificate from SQL database with full details
-            certificate = await self.certificate_repository.get_by_id(certificate_id)
-            if not certificate:
-                logger.error(f"Certificate {certificate_id} not found in SQL database")
-                return relationship_counts
-            
-            # Extract candidate_id if available
-            candidate_id = certificate.get("candidate_id")
-            
-            # Sync ISSUED_TO relationship (certificate-candidate)
-            if candidate_id:
-                success = await self.certificate_graph_repository.add_issued_to_relationship(certificate_id, candidate_id)
-                if success:
-                    relationship_counts["candidate"] += 1
-            
-            # Extract exam_id if available
-            exam_id = certificate.get("exam_id")
-            
-            # Sync FOR_EXAM relationship (certificate-exam)
-            if exam_id:
-                success = await self.certificate_graph_repository.add_for_exam_relationship(certificate_id, exam_id)
-                if success:
-                    relationship_counts["exam"] += 1
-            
-            logger.info(f"Certificate relationship synchronization completed for {certificate_id}")
-            return relationship_counts
-            
-        except Exception as e:
-            logger.error(f"Error synchronizing relationships for certificate {certificate_id}: {e}")
-            return relationship_counts 

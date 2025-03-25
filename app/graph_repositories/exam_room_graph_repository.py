@@ -66,12 +66,6 @@ class ExamRoomGraphRepository:
                 )
                 record = await result.single()
                 
-                # Tạo các mối quan hệ
-                await session.run(
-                    room.create_relationships_query(),
-                    **room.to_dict()
-                )
-                
                 # Tạo mối quan hệ INSTANCE_OF nếu có phương thức
                 if hasattr(room, 'create_instance_of_relationship_query'):
                     await session.run(

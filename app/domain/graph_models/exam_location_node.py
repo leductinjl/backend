@@ -144,39 +144,39 @@ class ExamLocationNode:
         }
     
     @classmethod
-    def from_sql_model(cls, location_model):
+    def from_sql_model(cls, sql_model):
         """
         Tạo đối tượng ExamLocationNode từ SQLAlchemy ExamLocation model.
         
         Args:
-            location_model: SQLAlchemy ExamLocation instance hoặc dictionary
+            sql_model: SQLAlchemy ExamLocation instance hoặc dictionary
             
         Returns:
             ExamLocationNode instance
         """
-        if isinstance(location_model, dict):
+        if isinstance(sql_model, dict):
             # Trường hợp location_model là dictionary
             return cls(
-                location_id=location_model.get('exam_location_id') or location_model.get('location_id'),
-                location_name=location_model.get('location_name'),
-                address=location_model.get('address'),
-                capacity=location_model.get('capacity'),
-                coordinates=location_model.get('coordinates'),
-                status=location_model.get('is_active'),
-                contact_info=location_model.get('contact_info'),
-                additional_info=location_model.get('additional_info')
+                location_id=sql_model.get('exam_location_id') or sql_model.get('location_id'),
+                location_name=sql_model.get('location_name'),
+                address=sql_model.get('address'),
+                capacity=sql_model.get('capacity'),
+                coordinates=sql_model.get('coordinates'),
+                status=sql_model.get('is_active'),
+                contact_info=sql_model.get('contact_info'),
+                additional_info=sql_model.get('additional_info')
             )
         else:
             # Trường hợp location_model là SQLAlchemy model
             return cls(
-                location_id=getattr(location_model, 'exam_location_id', None) or getattr(location_model, 'location_id', None),
-                location_name=getattr(location_model, 'location_name', None),
-                address=getattr(location_model, 'address', None),
-                capacity=getattr(location_model, 'capacity', None),
-                coordinates=getattr(location_model, 'coordinates', None),
-                status=getattr(location_model, 'is_active', None),
-                contact_info=getattr(location_model, 'contact_info', None),
-                additional_info=getattr(location_model, 'additional_info', None)
+                location_id=getattr(sql_model, 'exam_location_id', None) or getattr(sql_model, 'location_id', None),
+                location_name=getattr(sql_model, 'location_name', None),
+                address=getattr(sql_model, 'address', None),
+                capacity=getattr(sql_model, 'capacity', None),
+                coordinates=getattr(sql_model, 'coordinates', None),
+                status=getattr(sql_model, 'is_active', None),
+                contact_info=getattr(sql_model, 'contact_info', None),
+                additional_info=getattr(sql_model, 'additional_info', None)
             )
         
     @staticmethod
