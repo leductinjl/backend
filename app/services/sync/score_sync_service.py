@@ -55,7 +55,7 @@ class ScoreSyncService(BaseSyncService):
         Synchronize a specific score node by ID, only creating the node and INSTANCE_OF relationship.
         
         Args:
-            score_id: The ID of the score to sync
+            score_id: The ID of the score to sync (exam_score_id in database)
             
         Returns:
             True if sync was successful, False otherwise
@@ -63,7 +63,7 @@ class ScoreSyncService(BaseSyncService):
         logger.info(f"Synchronizing score node {score_id}")
         
         try:
-            # Get score from SQL database
+            # Get score from SQL database using exam_score_id
             score = await self.sql_repository.get_by_id(score_id)
             if not score:
                 logger.error(f"Score {score_id} not found in SQL database")
@@ -105,8 +105,12 @@ class ScoreSyncService(BaseSyncService):
                 try:
                     # Sync only the score node - handle both ORM objects and dictionaries
                     score_id = score.score_id if hasattr(score, 'score_id') else score.get("score_id")
+                    # Check for exam_score_id if score_id is not found
                     if not score_id:
-                        logger.error(f"Missing score_id in score object: {score}")
+                        score_id = score.exam_score_id if hasattr(score, 'exam_score_id') else score.get("exam_score_id")
+                    
+                    if not score_id:
+                        logger.error(f"Missing score_id/exam_score_id in score object: {score}")
                         failed_count += 1
                         continue
                         
@@ -116,7 +120,9 @@ class ScoreSyncService(BaseSyncService):
                         failed_count += 1
                 except Exception as e:
                     # Get score_id safely for logging
-                    score_id = getattr(score, 'score_id', None) if hasattr(score, 'score_id') else score.get("score_id", "unknown")
+                    score_id = getattr(score, 'score_id', None) if hasattr(score, 'score_id') else score.get("score_id", None)
+                    if not score_id:
+                        score_id = getattr(score, 'exam_score_id', None) if hasattr(score, 'exam_score_id') else score.get("exam_score_id", "unknown")
                     logger.error(f"Error syncing score node {score_id}: {e}")
                     failed_count += 1
             

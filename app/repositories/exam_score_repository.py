@@ -17,6 +17,7 @@ from app.domain.models.exam_score import ExamScore
 from app.domain.models.exam_subject import ExamSubject
 from app.domain.models.candidate import Candidate
 from app.domain.models.candidate_exam import CandidateExam
+from app.domain.models.candidate_exam_subject import CandidateExamSubject
 from app.domain.models.exam import Exam
 from app.domain.models.subject import Subject
 from app.services.id_service import generate_model_id
@@ -52,7 +53,7 @@ class ExamScoreRepository:
         Returns:
             Tuple containing the list of exam scores with details and total count
         """
-        # Join query to get candidate, exam, and subject names through exam_subject
+        # Join query to get candidate, exam, and subject names through proper relationships
         query = (
             select(
                 ExamScore,
@@ -66,11 +67,19 @@ class ExamScoreRepository:
                 ExamSubject.max_score,
                 ExamSubject.passing_score
             )
+            # First join to ExamSubject to get subject details
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
             .join(Subject, ExamSubject.subject_id == Subject.subject_id)
             .join(Exam, ExamSubject.exam_id == Exam.exam_id)
-            .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
+            # Join to CandidateExamSubject using the proper ID - this is the key relationship
+            .join(CandidateExamSubject, 
+                  ExamScore.candidate_exam_subject_id == CandidateExamSubject.candidate_exam_subject_id)
+            # Then join to CandidateExam and Candidate to get candidate details
+            .join(CandidateExam, 
+                  CandidateExamSubject.candidate_exam_id == CandidateExam.candidate_exam_id)
             .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
+            # Use DISTINCT to eliminate duplicates
+            .distinct(ExamScore.exam_score_id)
         )
         
         # Apply filters if any
@@ -109,8 +118,8 @@ class ExamScoreRepository:
             if filter_conditions:
                 query = query.filter(and_(*filter_conditions))
         
-        # Get total count
-        count_query = select(func.count()).select_from(query.subquery())
+        # Get total count using a simpler approach
+        count_query = select(func.count(func.distinct(ExamScore.exam_score_id))).select_from(ExamScore)
         total = await self.db.scalar(count_query)
         
         # Apply pagination
@@ -121,7 +130,15 @@ class ExamScoreRepository:
         
         # Process results to include related entity names
         scores = []
+        score_ids_seen = set()  # Track already seen score IDs to avoid duplicates
+        
         for score, candidate_id, candidate_name, exam_id, exam_name, subject_id, subject_name, subject_code, max_score, passing_score in result:
+            # Skip if we've already seen this score ID
+            if score.exam_score_id in score_ids_seen:
+                continue
+                
+            score_ids_seen.add(score.exam_score_id)
+            
             score_dict = {
                 "exam_score_id": score.exam_score_id,
                 "exam_subject_id": score.exam_subject_id,
@@ -174,7 +191,10 @@ class ExamScoreRepository:
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
             .join(Subject, ExamSubject.subject_id == Subject.subject_id)
             .join(Exam, ExamSubject.exam_id == Exam.exam_id)
-            .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
+            .join(CandidateExamSubject, 
+                  ExamScore.candidate_exam_subject_id == CandidateExamSubject.candidate_exam_subject_id)
+            .join(CandidateExam, 
+                  CandidateExamSubject.candidate_exam_id == CandidateExam.candidate_exam_id)
             .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
             .filter(ExamScore.exam_score_id == exam_score_id)
         )
@@ -287,9 +307,13 @@ class ExamScoreRepository:
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
             .join(Subject, ExamSubject.subject_id == Subject.subject_id)
             .join(Exam, ExamSubject.exam_id == Exam.exam_id)
-            .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
+            .join(CandidateExamSubject, 
+                  ExamScore.candidate_exam_subject_id == CandidateExamSubject.candidate_exam_subject_id)
+            .join(CandidateExam, 
+                  CandidateExamSubject.candidate_exam_id == CandidateExam.candidate_exam_id)
             .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
             .filter(Candidate.candidate_id == candidate_id)
+            .distinct(ExamScore.exam_score_id)
         )
         
         result = await self.db.execute(query)
@@ -332,8 +356,10 @@ class ExamScoreRepository:
         query = (
             select(ExamScore)
             .join(ExamSubject, ExamScore.exam_subject_id == ExamSubject.exam_subject_id)
-            .join(Exam, ExamSubject.exam_id == Exam.exam_id)
-            .join(CandidateExam, Exam.exam_id == CandidateExam.exam_id)
+            .join(CandidateExamSubject, 
+                  ExamScore.candidate_exam_subject_id == CandidateExamSubject.candidate_exam_subject_id)
+            .join(CandidateExam, 
+                  CandidateExamSubject.candidate_exam_id == CandidateExam.candidate_exam_id)
             .join(Candidate, CandidateExam.candidate_id == Candidate.candidate_id)
             .filter(
                 ExamScore.exam_subject_id == exam_subject_id,

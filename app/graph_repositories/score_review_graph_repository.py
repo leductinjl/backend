@@ -358,4 +358,100 @@ class ScoreReviewGraphRepository:
             return []
         except Exception as e:
             logger.error(f"Unexpected error in get_all_reviews: {e}")
-            return [] 
+            return []
+    
+    async def add_for_score_relationship(self, review_id: str, score_id: str) -> bool:
+        """
+        Thêm mối quan hệ REVIEWS giữa ScoreReview và Score.
+        
+        Args:
+            review_id: ID của đơn phúc khảo
+            score_id: ID của điểm
+            
+        Returns:
+            bool: True nếu thành công, False nếu thất bại
+        """
+        query = f"""
+        MATCH (r:ScoreReview {{review_id: $review_id}})
+        MATCH (s:Score {{score_id: $score_id}})
+        MERGE (r)-[rel:{REVIEWS_REL}]->(s)
+        RETURN rel
+        """
+        params = {
+            "review_id": review_id,
+            "score_id": score_id
+        }
+        
+        try:
+            result = await self.driver.execute_query(query, params)
+            success = result and len(result) > 0
+            if success:
+                logger.info(f"Created REVIEWS relationship between ScoreReview {review_id} and Score {score_id}")
+            return success
+        except Exception as e:
+            logger.error(f"Error creating REVIEWS relationship: {e}")
+            return False
+    
+    async def add_requested_by_relationship(self, review_id: str, candidate_id: str) -> bool:
+        """
+        Thêm mối quan hệ REQUESTS_REVIEW giữa Candidate và ScoreReview.
+        
+        Args:
+            review_id: ID của đơn phúc khảo
+            candidate_id: ID của thí sinh
+            
+        Returns:
+            bool: True nếu thành công, False nếu thất bại
+        """
+        query = f"""
+        MATCH (c:Candidate {{candidate_id: $candidate_id}})
+        MATCH (r:ScoreReview {{review_id: $review_id}})
+        MERGE (c)-[rel:{REQUESTS_REVIEW_REL}]->(r)
+        RETURN rel
+        """
+        params = {
+            "review_id": review_id,
+            "candidate_id": candidate_id
+        }
+        
+        try:
+            result = await self.driver.execute_query(query, params)
+            success = result and len(result) > 0
+            if success:
+                logger.info(f"Created REQUESTS_REVIEW relationship between Candidate {candidate_id} and ScoreReview {review_id}")
+            return success
+        except Exception as e:
+            logger.error(f"Error creating REQUESTS_REVIEW relationship: {e}")
+            return False
+    
+    async def add_for_subject_relationship(self, review_id: str, subject_id: str) -> bool:
+        """
+        Thêm mối quan hệ FOR_SUBJECT giữa ScoreReview và Subject.
+        
+        Args:
+            review_id: ID của đơn phúc khảo
+            subject_id: ID của môn học
+            
+        Returns:
+            bool: True nếu thành công, False nếu thất bại
+        """
+        query = f"""
+        MATCH (r:ScoreReview {{review_id: $review_id}})
+        MATCH (s:Subject {{subject_id: $subject_id}})
+        MERGE (r)-[rel:{FOR_SUBJECT_REL}]->(s)
+        RETURN rel
+        """
+        params = {
+            "review_id": review_id,
+            "subject_id": subject_id
+        }
+        
+        try:
+            result = await self.driver.execute_query(query, params)
+            success = result and len(result) > 0
+            if success:
+                logger.info(f"Created FOR_SUBJECT relationship between ScoreReview {review_id} and Subject {subject_id}")
+            return success
+        except Exception as e:
+            logger.error(f"Error creating FOR_SUBJECT relationship: {e}")
+            return False 

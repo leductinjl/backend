@@ -161,17 +161,20 @@ class ScoreNode:
         score_value = float(self.score_value) if self.score_value is not None else None
         
         return {
+            # Thuộc tính cơ bản của node
             "score_id": self.score_id,
             "name": self.name,
-            "candidate_id": self.candidate_id,
-            "subject_id": self.subject_id,
-            "exam_id": self.exam_id,
             "score_value": score_value,
             "status": self.status,
             "graded_by": self.graded_by,
             "graded_at": self.graded_at,
             "score_history": self.score_history,
-            # Thuộc tính cho mối quan hệ RECEIVES_SCORE
+            
+            # Các trường liên quan đến relationship, không được lưu vào node
+            # Chỉ được giữ lại cho mục đích tạo relationship trong sync_relationship_by_id
+            "candidate_id": self.candidate_id,
+            "subject_id": self.subject_id,
+            "exam_id": self.exam_id,
             "exam_name": self.exam_name,
             "subject_name": self.subject_name,
             "registration_status": self.registration_status,

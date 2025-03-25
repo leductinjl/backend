@@ -317,4 +317,100 @@ class ScoreGraphRepository:
             return averages
         except Exception as e:
             logger.error(f"Error getting average scores for school {school_id}: {e}")
-            return [] 
+            return []
+    
+    async def add_achieved_by_relationship(self, score_id: str, candidate_id: str) -> bool:
+        """
+        Thêm mối quan hệ RECEIVES_SCORE giữa Candidate và Score.
+        
+        Args:
+            score_id: ID của điểm
+            candidate_id: ID của thí sinh
+            
+        Returns:
+            bool: True nếu thành công, False nếu thất bại
+        """
+        query = f"""
+        MATCH (c:Candidate {{candidate_id: $candidate_id}})
+        MATCH (s:Score {{score_id: $score_id}})
+        MERGE (c)-[r:{RECEIVES_SCORE_REL}]->(s)
+        RETURN r
+        """
+        params = {
+            "score_id": score_id,
+            "candidate_id": candidate_id
+        }
+        
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            success = result and len(result) > 0
+            if success:
+                logger.info(f"Created RECEIVES_SCORE relationship between Candidate {candidate_id} and Score {score_id}")
+            return success
+        except Exception as e:
+            logger.error(f"Error creating RECEIVES_SCORE relationship: {e}")
+            return False
+    
+    async def add_for_exam_relationship(self, score_id: str, exam_id: str) -> bool:
+        """
+        Thêm mối quan hệ IN_EXAM giữa Score và Exam.
+        
+        Args:
+            score_id: ID của điểm
+            exam_id: ID của kỳ thi
+            
+        Returns:
+            bool: True nếu thành công, False nếu thất bại
+        """
+        query = f"""
+        MATCH (s:Score {{score_id: $score_id}})
+        MATCH (e:Exam {{exam_id: $exam_id}})
+        MERGE (s)-[r:{IN_EXAM_REL}]->(e)
+        RETURN r
+        """
+        params = {
+            "score_id": score_id,
+            "exam_id": exam_id
+        }
+        
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            success = result and len(result) > 0
+            if success:
+                logger.info(f"Created IN_EXAM relationship between Score {score_id} and Exam {exam_id}")
+            return success
+        except Exception as e:
+            logger.error(f"Error creating IN_EXAM relationship: {e}")
+            return False
+    
+    async def add_for_subject_relationship(self, score_id: str, subject_id: str) -> bool:
+        """
+        Thêm mối quan hệ FOR_SUBJECT giữa Score và Subject.
+        
+        Args:
+            score_id: ID của điểm
+            subject_id: ID của môn học
+            
+        Returns:
+            bool: True nếu thành công, False nếu thất bại
+        """
+        query = f"""
+        MATCH (s:Score {{score_id: $score_id}})
+        MATCH (subj:Subject {{subject_id: $subject_id}})
+        MERGE (s)-[r:{FOR_SUBJECT_REL}]->(subj)
+        RETURN r
+        """
+        params = {
+            "score_id": score_id,
+            "subject_id": subject_id
+        }
+        
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            success = result and len(result) > 0
+            if success:
+                logger.info(f"Created FOR_SUBJECT relationship between Score {score_id} and Subject {subject_id}")
+            return success
+        except Exception as e:
+            logger.error(f"Error creating FOR_SUBJECT relationship: {e}")
+            return False 

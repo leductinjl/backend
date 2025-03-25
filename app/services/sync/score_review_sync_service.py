@@ -55,7 +55,7 @@ class ScoreReviewSyncService(BaseSyncService):
         Synchronize a specific score review node by ID, only creating the node and INSTANCE_OF relationship.
         
         Args:
-            review_id: The ID of the score review to sync
+            review_id: The ID of the score review to sync (score_review_id in database)
             
         Returns:
             True if sync was successful, False otherwise
@@ -63,7 +63,7 @@ class ScoreReviewSyncService(BaseSyncService):
         logger.info(f"Synchronizing score review node {review_id}")
         
         try:
-            # Get score review from SQL database
+            # Get score review from SQL database using score_review_id
             review = await self.sql_repository.get_by_id(review_id)
             if not review:
                 logger.error(f"Score review {review_id} not found in SQL database")
@@ -103,10 +103,14 @@ class ScoreReviewSyncService(BaseSyncService):
             
             for review in reviews:
                 try:
-                    # Sync only the review node - handle both ORM objects and dictionaries
+                    # Sync only the score review node - handle both ORM objects and dictionaries
                     review_id = review.review_id if hasattr(review, 'review_id') else review.get("review_id")
+                    # Check for score_review_id if review_id is not found
                     if not review_id:
-                        logger.error(f"Missing review_id in review object: {review}")
+                        review_id = review.score_review_id if hasattr(review, 'score_review_id') else review.get("score_review_id")
+                    
+                    if not review_id:
+                        logger.error(f"Missing review_id/score_review_id in review object: {review}")
                         failed_count += 1
                         continue
                         
@@ -116,8 +120,10 @@ class ScoreReviewSyncService(BaseSyncService):
                         failed_count += 1
                 except Exception as e:
                     # Get review_id safely for logging
-                    review_id = getattr(review, 'review_id', None) if hasattr(review, 'review_id') else review.get("review_id", "unknown")
-                    logger.error(f"Error syncing review node {review_id}: {e}")
+                    review_id = getattr(review, 'review_id', None) if hasattr(review, 'review_id') else review.get("review_id", None)
+                    if not review_id:
+                        review_id = getattr(review, 'score_review_id', None) if hasattr(review, 'score_review_id') else review.get("score_review_id", "unknown")
+                    logger.error(f"Error syncing score review node {review_id}: {e}")
                     failed_count += 1
             
             logger.info(f"Completed synchronizing score review nodes: {success_count} successful, {failed_count} failed")
