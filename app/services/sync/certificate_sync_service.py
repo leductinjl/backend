@@ -104,7 +104,7 @@ class CertificateSyncService(BaseSyncService):
                 try:
                     # Sync only the certificate node
                     if await self.sync_node_by_id(certificate["certificate_id"]):
-                    success_count += 1
+                        success_count += 1
                     else:
                         failed_count += 1
                 except Exception as e:
