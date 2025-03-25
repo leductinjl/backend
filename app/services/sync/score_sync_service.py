@@ -132,15 +132,6 @@ class ScoreSyncService(BaseSyncService):
         logger.info(f"Synchronizing all score nodes (limit={limit})")
         
         try:
-            # First, clean up any existing score nodes to ensure fresh start
-            try:
-                # This is an optional step that can be removed if not needed
-                clean_query = "MATCH (s:Score) DETACH DELETE s"
-                await self.neo4j_driver.execute_query(clean_query)
-                logger.info("Cleared existing score nodes for fresh synchronization")
-            except Exception as e:
-                logger.warning(f"Could not clear existing score nodes: {e}")
-            
             # Use direct SQL to get all scores with the necessary data in one query
             sql_query = """
                 SELECT 
@@ -176,13 +167,18 @@ class ScoreSyncService(BaseSyncService):
             scores = []
             
             for row in result.fetchall():
+                # Convert empty dictionary to None for score_metadata
+                score_metadata = row[5]
+                if isinstance(score_metadata, dict) and not score_metadata:
+                    score_metadata = None
+                
                 scores.append({
                     "exam_score_id": row[0],
-                    "score": row[1],
+                    "score": float(row[1]) if row[1] is not None else None,  # Convert Decimal to float
                     "status": row[2],
                     "graded_by": row[3],
                     "graded_at": row[4],
-                    "score_histories": row[5],
+                    "score_histories": score_metadata,  # Use processed score_metadata
                     "subject_name": row[6],
                     "exam_name": row[7],
                     "candidate_id": row[8],
@@ -256,8 +252,22 @@ class ScoreSyncService(BaseSyncService):
                     # Ensure score_id is set as exam_score_id as well
                     params["exam_score_id"] = score_id
                     
+                    # Convert empty dictionary to None for score_history
+                    if isinstance(params.get("score_history"), dict) and not params["score_history"]:
+                        params["score_history"] = None
+                    
                     result = await self.neo4j_driver.execute_query(query, params)
                     if result and len(result) > 0:
+                        # Create INSTANCE_OF relationship using the method from ScoreNode
+                        instance_query = score_node.create_instance_of_relationship_query()
+                        instance_params = {"score_id": score_id}
+                        instance_result = await self.neo4j_driver.execute_query(instance_query, instance_params)
+                        
+                        if instance_result:
+                            logger.debug(f"Created INSTANCE_OF relationship for score {score_id}")
+                        else:
+                            logger.warning(f"Failed to create INSTANCE_OF relationship for score {score_id}")
+                        
                         success_count += 1
                         logger.debug(f"Successfully synchronized score node {score_id}")
                     else:
@@ -289,7 +299,8 @@ class ScoreSyncService(BaseSyncService):
         try:
             # Extract the required fields from the score data
             score_id = score_data.get("exam_score_id")
-            score_value = score_data.get("score")
+            # Convert Decimal to float for Neo4j compatibility
+            score_value = float(score_data.get("score")) if score_data.get("score") is not None else None
             subject_name = score_data.get("subject_name")
             exam_name = score_data.get("exam_name")
             
