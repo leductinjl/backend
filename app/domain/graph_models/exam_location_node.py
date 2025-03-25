@@ -5,9 +5,12 @@ This module defines the ExamLocationNode class for representing ExamLocation ent
 """
 
 from app.infrastructure.ontology.ontology import RELATIONSHIPS, CLASSES
+import logging
 
 # Define relationship constants
 INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
+
+logger = logging.getLogger(__name__)
 
 class ExamLocationNode:
     """
@@ -192,6 +195,20 @@ class ExamLocationNode:
         """
         node = record['l']  # 'l' là alias cho location trong cypher query
         
+        # Ensure location_id is present
+        location_id = node.get('location_id')
+        if not location_id:
+            # Try to get it from the node identity if available
+            try:
+                if hasattr(node, 'id') and node.id:
+                    location_id = f"neo4j_{node.id}"  # Use Neo4j's internal ID as fallback
+                else:
+                    location_id = "unknown_location"  # Last resort fallback
+                logger.warning(f"Missing location_id in Neo4j node, using fallback: {location_id}")
+            except Exception as e:
+                logger.error(f"Error getting fallback location_id: {e}")
+                location_id = "unknown_location"
+        
         # Reconstruct contact_info from individual fields if available
         contact_info = None
         if node.get('contact_website') or node.get('contact_phone') or node.get('contact_email'):
@@ -211,8 +228,8 @@ class ExamLocationNode:
                 contact_info = node.get('contact_info_str')
         
         return ExamLocationNode(
-            location_id=node['location_id'],
-            location_name=node['location_name'],
+            location_id=location_id,
+            location_name=node.get('location_name', f"Location {location_id}"),
             address=node.get('address'),
             capacity=node.get('capacity'),
             coordinates=node.get('coordinates'),

@@ -6,7 +6,7 @@ exams, schools, and other administrative tasks. All endpoints in this router
 require admin authentication.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Path
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
@@ -463,6 +463,59 @@ async def synchronize_only_relationships(
         return {
             "status": "error",
             "message": f"Error during relationship synchronization: {str(e)}",
+            "results": {}
+        }
+
+@router.post("/sync/neo4j/entity/{entity_type}/relationships", response_model=dict, summary="Synchronize Relationships for a Specific Entity Type")
+async def synchronize_entity_relationships(
+    entity_type: str = Path(..., description="Entity type (score, subject, candidate, etc.)"),
+    limit: Optional[int] = None,
+    db: AsyncSession = Depends(get_db),
+    neo4j = Depends(get_neo4j),
+    admin: dict = Depends(get_current_admin)
+):
+    """
+    Đồng bộ mối quan hệ cho một loại entity cụ thể.
+    
+    Endpoint này cho phép đồng bộ mối quan hệ chỉ cho một loại entity được chỉ định,
+    giúp kiểm tra và debug quá trình đồng bộ cho từng loại dữ liệu riêng biệt.
+    
+    Args:
+        entity_type: Loại entity cần đồng bộ (score, subject, exam, candidate, etc.)
+        limit: Giới hạn số lượng entity xử lý
+    """
+    try:
+        # Kiểm tra entity_type là một giá trị hợp lệ
+        valid_entity_types = [
+            "subject", "score", "score_review", "exam", "candidate", 
+            "achievement", "award", "certificate", "credential", "degree", 
+            "exam_location", "exam_room", "exam_schedule", "major", 
+            "management_unit", "recognition", "school"
+        ]
+        
+        entity_type_lower = entity_type.lower()
+        if entity_type_lower not in valid_entity_types:
+            return {
+                "status": "error",
+                "message": f"Invalid entity type: {entity_type}. Valid types are: {', '.join(valid_entity_types)}"
+            }
+            
+        sync_service = MainSyncService(session=db, driver=neo4j._driver)
+        
+        # Synchronize relationships for the specific entity type
+        # EntityType là Literal nên chỉ cần truyền string
+        results = await sync_service.sync_all_relationships(entity_type=entity_type_lower, limit=limit)
+        
+        return {
+            "status": "success",
+            "message": f"Relationship synchronization completed for {entity_type}",
+            "results": results
+        }
+    except Exception as e:
+        logger.error(f"Error during entity relationship synchronization: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": f"Error during relationship synchronization for {entity_type}: {str(e)}",
             "results": {}
         }
 

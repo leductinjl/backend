@@ -410,4 +410,136 @@ class ExamScheduleGraphRepository:
             return participants
         except Exception as e:
             self.logger.error(f"Error retrieving participants: {str(e)}")
-            return [] 
+            return []
+    
+    async def add_for_exam_relationship(self, schedule_id: str, exam_id: str) -> bool:
+        """
+        Create a relationship between an ExamSchedule and an Exam.
+        
+        Args:
+            schedule_id: The ID of the ExamSchedule
+            exam_id: The ID of the Exam
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        query = f"""
+        MATCH (s:ExamSchedule {{schedule_id: $schedule_id}})
+        MATCH (e:Exam {{exam_id: $exam_id}})
+        MERGE (e)-[r:{FOLLOWS_SCHEDULE_REL}]->(s)
+        ON CREATE SET r.created_at = datetime()
+        ON MATCH SET r.updated_at = datetime()
+        RETURN r
+        """
+        params = {"schedule_id": schedule_id, "exam_id": exam_id}
+        
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            if result:
+                self.logger.info(f"Created relationship between exam {exam_id} and schedule {schedule_id}")
+                return True
+            else:
+                self.logger.warning(f"Failed to create relationship between exam {exam_id} and schedule {schedule_id}")
+                return False
+        except Exception as e:
+            self.logger.error(f"Error creating exam-schedule relationship: {str(e)}")
+            return False
+    
+    async def add_for_subject_relationship(self, schedule_id: str, subject_id: str) -> bool:
+        """
+        Create a relationship between an ExamSchedule and a Subject.
+        
+        Args:
+            schedule_id: The ID of the ExamSchedule
+            subject_id: The ID of the Subject
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        query = f"""
+        MATCH (s:ExamSchedule {{schedule_id: $schedule_id}})
+        MATCH (sub:Subject {{subject_id: $subject_id}})
+        MERGE (s)-[r:{SCHEDULES_SUBJECT_REL}]->(sub)
+        ON CREATE SET r.created_at = datetime()
+        ON MATCH SET r.updated_at = datetime()
+        RETURN r
+        """
+        params = {"schedule_id": schedule_id, "subject_id": subject_id}
+        
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            if result:
+                self.logger.info(f"Created relationship between schedule {schedule_id} and subject {subject_id}")
+                return True
+            else:
+                self.logger.warning(f"Failed to create relationship between schedule {schedule_id} and subject {subject_id}")
+                return False
+        except Exception as e:
+            self.logger.error(f"Error creating schedule-subject relationship: {str(e)}")
+            return False
+    
+    async def add_in_room_relationship(self, schedule_id: str, room_id: str) -> bool:
+        """
+        Create a relationship between an ExamSchedule and an ExamRoom.
+        
+        Args:
+            schedule_id: The ID of the ExamSchedule
+            room_id: The ID of the ExamRoom
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        query = f"""
+        MATCH (s:ExamSchedule {{schedule_id: $schedule_id}})
+        MATCH (r:ExamRoom {{room_id: $room_id}})
+        MERGE (s)-[rel:{ASSIGNED_TO_REL}]->(r)
+        ON CREATE SET rel.created_at = datetime()
+        ON MATCH SET rel.updated_at = datetime()
+        RETURN rel
+        """
+        params = {"schedule_id": schedule_id, "room_id": room_id}
+        
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            if result:
+                self.logger.info(f"Created relationship between schedule {schedule_id} and room {room_id}")
+                return True
+            else:
+                self.logger.warning(f"Failed to create relationship between schedule {schedule_id} and room {room_id}")
+                return False
+        except Exception as e:
+            self.logger.error(f"Error creating schedule-room relationship: {str(e)}")
+            return False
+    
+    async def add_at_location_relationship(self, schedule_id: str, location_id: str) -> bool:
+        """
+        Create a relationship between an ExamSchedule and an ExamLocation.
+        
+        Args:
+            schedule_id: The ID of the ExamSchedule
+            location_id: The ID of the ExamLocation
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        query = f"""
+        MATCH (s:ExamSchedule {{schedule_id: $schedule_id}})
+        MATCH (l:ExamLocation {{location_id: $location_id}})
+        MERGE (s)-[rel:{SCHEDULE_AT_REL}]->(l)
+        ON CREATE SET rel.created_at = datetime()
+        ON MATCH SET rel.updated_at = datetime()
+        RETURN rel
+        """
+        params = {"schedule_id": schedule_id, "location_id": location_id}
+        
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            if result:
+                self.logger.info(f"Created relationship between schedule {schedule_id} and location {location_id}")
+                return True
+            else:
+                self.logger.warning(f"Failed to create relationship between schedule {schedule_id} and location {location_id}")
+                return False
+        except Exception as e:
+            self.logger.error(f"Error creating schedule-location relationship: {str(e)}")
+            return False 

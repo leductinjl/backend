@@ -176,7 +176,9 @@ class CertificateRepository:
             "created_at": cert.created_at,
             "updated_at": cert.updated_at,
             "candidate_name": candidate_name,
-            "exam_name": exam_name
+            "exam_name": exam_name,
+            "candidate_id": candidate_exam.candidate_id,
+            "exam_id": candidate_exam.exam_id
         }
     
     async def get_by_candidate_exam_id(self, candidate_exam_id: str) -> List[Dict]:

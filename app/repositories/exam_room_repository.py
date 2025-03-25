@@ -100,6 +100,9 @@ class ExamRoomRepository:
             exams_result = await self.db.execute(exams_query)
             exams = [{"exam_id": exam_id, "exam_name": exam_name} for exam_id, exam_name in exams_result]
             
+            # Get schedules for this room
+            schedules = await self.get_schedules_by_room_id(room.room_id)
+            
             room_dict = {
                 "room_id": room.room_id,
                 "room_name": room.room_name,
@@ -115,7 +118,8 @@ class ExamRoomRepository:
                 "created_at": room.created_at,
                 "updated_at": room.updated_at,
                 "location_name": location_name,
-                "exams": exams  # List of exams instead of single exam_id/name
+                "exams": exams,  # List of exams instead of single exam_id/name
+                "schedules": schedules  # Add schedules to the returned data
             }
             exam_rooms.append(room_dict)
         
@@ -161,6 +165,9 @@ class ExamRoomRepository:
         exams_result = await self.db.execute(exams_query)
         exams = [{"exam_id": exam_id, "exam_name": exam_name} for exam_id, exam_name in exams_result]
         
+        # Get schedules for this room
+        schedules = await self.get_schedules_by_room_id(room_id)
+        
         return {
             "room_id": room.room_id,
             "room_name": room.room_name,
@@ -176,8 +183,51 @@ class ExamRoomRepository:
             "created_at": room.created_at,
             "updated_at": room.updated_at,
             "location_name": location_name,
-            "exams": exams  # List of exams instead of single exam_id/name
+            "exams": exams,  # List of exams instead of single exam_id/name
+            "schedules": schedules  # Add schedules to the returned data
         }
+    
+    async def get_schedules_by_room_id(self, room_id: str) -> List[Dict]:
+        """
+        Get all exam schedules for a specific room.
+        
+        Args:
+            room_id: The ID of the exam room
+            
+        Returns:
+            List of exam schedules for the specified room
+        """
+        try:
+            # Import here to avoid circular imports
+            from app.domain.models.exam_schedule import ExamSchedule
+            
+            # Query for schedules that are assigned to this room
+            query = select(ExamSchedule).filter(ExamSchedule.room_id == room_id)
+            result = await self.db.execute(query)
+            schedules = result.scalars().all()
+            
+            # Convert to dictionary
+            schedule_list = []
+            for schedule in schedules:
+                # Log attributes to debug
+                logger.debug(f"Schedule attributes: {dir(schedule)}")
+                
+                # Use the correct attribute name (exam_schedule_id instead of schedule_id)
+                schedule_list.append({
+                    "schedule_id": getattr(schedule, "exam_schedule_id", None),  # Use exam_schedule_id instead
+                    "exam_id": getattr(schedule, "exam_subject_id", None),  # Adjusted based on the SQL query
+                    "room_id": schedule.room_id,
+                    "start_time": schedule.start_time,
+                    "end_time": schedule.end_time,
+                    "status": getattr(schedule, "status", None),
+                    "is_active": getattr(schedule, "is_active", True),
+                    "description": getattr(schedule, "description", None)
+                })
+                
+            return schedule_list
+        except Exception as e:
+            logger.error(f"Error getting schedules for room {room_id}: {e}")
+            return []
     
     async def get_by_location_id(self, location_id: str) -> List[ExamRoom]:
         """

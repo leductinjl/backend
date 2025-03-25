@@ -166,48 +166,37 @@ class ManagementUnitSyncService(BaseSyncService):
         # Check if management unit node exists before syncing relationships
         unit_node = await self.graph_repository.get_by_id(unit_id)
         if not unit_node:
-            logger.warning(f"Management unit node {unit_id} not found in Neo4j, skipping relationship sync")
+            logger.warning(f"Management unit {unit_id} not found in Neo4j, skipping relationship sync")
             return {
                 "error": "Management unit node not found in Neo4j",
-                "exams": 0,
-                "parent_unit": 0,
-                "child_units": 0
+                "exams": 0
             }
         
         relationship_counts = {
-            "exams": 0,
-            "parent_unit": 0,
-            "child_units": 0
+            "exams": 0
         }
         
         try:
-            # Get management unit from SQL database with full details
-            unit = await self.sql_repository.get_by_id(unit_id)
-            if not unit:
-                logger.error(f"Management unit {unit_id} not found in SQL database")
-                return relationship_counts
+            # Import text for SQL queries
+            from sqlalchemy import text
+            
+            # Get exam relationships using direct SQL query instead of ORM relationship
+            query = text("""
+            SELECT e.exam_id
+            FROM exam e
+            WHERE e.organizing_unit_id = :unit_id
+            """)
+            
+            result = await self.db_session.execute(query, {"unit_id": unit_id})
+            exams = result.fetchall()
             
             # Sync ORGANIZES relationships (management_unit-exam)
-            if hasattr(unit, 'exams') and unit.exams:
-                for exam in unit.exams:
-                    if hasattr(exam, 'exam_id') and exam.exam_id:
-                        success = await self.graph_repository.add_organizes_relationship(unit_id, exam.exam_id)
-                        if success:
-                            relationship_counts["exams"] += 1
-            
-            # Sync PARENT_OF relationships (parent_unit-child_unit)
-            if hasattr(unit, 'child_units') and unit.child_units:
-                for child_unit in unit.child_units:
-                    if hasattr(child_unit, 'unit_id') and child_unit.unit_id:
-                        success = await self.graph_repository.add_parent_of_relationship(unit_id, child_unit.unit_id)
-                        if success:
-                            relationship_counts["child_units"] += 1
-            
-            # Sync CHILD_OF relationship (child_unit-parent_unit)
-            if hasattr(unit, 'parent_unit_id') and unit.parent_unit_id:
-                success = await self.graph_repository.add_child_of_relationship(unit_id, unit.parent_unit_id)
-                if success:
-                    relationship_counts["parent_unit"] += 1
+            for exam in exams:
+                exam_id = exam[0]
+                if exam_id:
+                    success = await self.graph_repository.add_organizes_relationship(unit_id, exam_id)
+                    if success:
+                        relationship_counts["exams"] += 1
             
             logger.info(f"Management unit relationship synchronization completed for {unit_id}: {relationship_counts}")
             return relationship_counts
@@ -229,30 +218,30 @@ class ManagementUnitSyncService(BaseSyncService):
         logger.info(f"Synchronizing relationships for all management units (limit={limit})")
         
         try:
-            # Get all management units from SQL database
-            units, total_count = await self.sql_repository.get_all(limit=limit)
+            # Import text for SQL queries
+            from sqlalchemy import text
             
-            total_units = len(units)
+            # Get all management units' IDs from SQL database using direct query
+            sql_query = "SELECT unit_id FROM management_unit"
+            if limit:
+                sql_query += f" LIMIT {limit}"
+            
+            query = text(sql_query)
+            result = await self.db_session.execute(query)
+            unit_ids = [row[0] for row in result.fetchall()]
+            
+            total_units = len(unit_ids)
             success_count = 0
             failure_count = 0
             
             # Aggregated counts for all relationship types
             relationship_counts = {
-                "exams": 0,
-                "parent_unit": 0,
-                "child_units": 0
+                "exams": 0
             }
             
             # For each management unit, sync relationships
-            for unit in units:
+            for unit_id in unit_ids:
                 try:
-                    # Get unit_id safely - handle both ORM objects and dictionaries
-                    unit_id = unit.unit_id if hasattr(unit, 'unit_id') else unit.get("unit_id")
-                    if not unit_id:
-                        logger.error(f"Missing unit_id in management unit object: {unit}")
-                        failure_count += 1
-                        continue
-                    
                     # Verify management unit exists in Neo4j
                     unit_node = await self.graph_repository.get_by_id(unit_id)
                     if not unit_node:
@@ -271,8 +260,6 @@ class ManagementUnitSyncService(BaseSyncService):
                     success_count += 1
                     
                 except Exception as e:
-                    # Get unit_id safely for logging
-                    unit_id = getattr(unit, 'unit_id', None) if hasattr(unit, 'unit_id') else unit.get("unit_id", "unknown")
                     logger.error(f"Error synchronizing relationships for management unit {unit_id}: {e}")
                     failure_count += 1
             

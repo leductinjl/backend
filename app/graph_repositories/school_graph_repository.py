@@ -89,8 +89,15 @@ class SchoolGraphRepository:
         
         try:
             result = await self.neo4j.execute_query(query, params)
-            if result and len(result) > 0:
-                return SchoolNode.from_record({"s": result[0][0]})
+            if result and len(result) > 0 and result[0] and result[0][0]:
+                # Return a SchoolNode initialized from the record data
+                school_data = dict(result[0][0].items())
+                return SchoolNode(
+                    school_id=school_data.get("school_id"),
+                    school_name=school_data.get("school_name"),
+                    address=school_data.get("address"),
+                    type=school_data.get("type")
+                )
             return None
         except Exception as e:
             logger.error(f"Error retrieving school by ID: {e}")

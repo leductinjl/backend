@@ -226,21 +226,42 @@ class ExamRoomGraphRepository:
         Returns:
             True nếu thành công, False nếu lỗi
         """
-        query = f"""
-        MATCH (r:ExamRoom {{room_id: $room_id}})
-        MATCH (e:Exam {{exam_id: $exam_id}})
-        MERGE (e)-[:{HELD_IN_REL}]->(r)
-        RETURN r, e
+        # This relationship should be removed as per the design
+        # Exams are linked to locations, and rooms are linked to locations
+        # There's no direct exam-room relationship needed
+        logger.warning(f"Skipping direct relationship between exam {exam_id} and room {room_id} as per design")
+        return False 
+    
+    async def add_schedule_relationship(self, room_id: str, schedule_id: str) -> bool:
         """
+        Create a HAS_SCHEDULE relationship between an ExamRoom and an ExamSchedule.
+        
+        Args:
+            room_id: ID of the exam room
+            schedule_id: ID of the exam schedule
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        query = """
+        MATCH (r:ExamRoom {room_id: $room_id})
+        MATCH (s:ExamSchedule {exam_schedule_id: $schedule_id})
+        MERGE (r)-[rel:HAS_SCHEDULE]->(s)
+        SET rel.updated_at = datetime()
+        RETURN r, s
+        """
+        
+        params = {
+            "room_id": room_id,
+            "schedule_id": schedule_id
+        }
         
         try:
             async with self.driver.session() as session:
-                result = await session.run(query, room_id=room_id, exam_id=exam_id)
+                result = await session.run(query, **params)
                 record = await result.single()
+                logger.info(f"Added HAS_SCHEDULE relationship between room {room_id} and schedule {schedule_id}")
                 return record is not None
-        except Neo4jError as e:
-            logger.error(f"Error adding exam relationship: {e}")
-            return False
         except Exception as e:
-            logger.error(f"Unexpected error in add_exam_relationship: {e}")
+            logger.error(f"Error adding schedule relationship: {e}")
             return False 

@@ -271,4 +271,68 @@ class RecognitionGraphRepository:
             return recognitions
         except Exception as e:
             logger.error(f"Error getting all recognitions: {e}")
-            return [] 
+            return []
+    
+    async def add_received_by_relationship(self, recognition_id, candidate_id):
+        """
+        Create a relationship between a recognition and a candidate.
+        
+        Args:
+            recognition_id: ID of the recognition
+            candidate_id: ID of the candidate who received the recognition
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            query = f"""
+            MATCH (r:Recognition {{recognition_id: $recognition_id}})
+            MATCH (c:Candidate {{candidate_id: $candidate_id}})
+            MERGE (c)-[rel:{RECEIVES_RECOGNITION_REL}]->(r)
+            SET rel.updated_at = datetime()
+            RETURN rel
+            """
+            
+            params = {
+                "recognition_id": recognition_id,
+                "candidate_id": candidate_id
+            }
+            
+            await self.neo4j.execute_query(query, params)
+            logger.info(f"Added RECEIVES_RECOGNITION relationship between candidate {candidate_id} and recognition {recognition_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error adding RECEIVES_RECOGNITION relationship: {e}")
+            return False
+            
+    async def add_for_exam_relationship(self, recognition_id, exam_id):
+        """
+        Create a relationship between a recognition and an exam.
+        
+        Args:
+            recognition_id: ID of the recognition
+            exam_id: ID of the exam the recognition is for
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            query = f"""
+            MATCH (r:Recognition {{recognition_id: $recognition_id}})
+            MATCH (e:Exam {{exam_id: $exam_id}})
+            MERGE (r)-[rel:{RECOGNITION_FOR_EXAM_REL}]->(e)
+            SET rel.updated_at = datetime()
+            RETURN rel
+            """
+            
+            params = {
+                "recognition_id": recognition_id,
+                "exam_id": exam_id
+            }
+            
+            await self.neo4j.execute_query(query, params)
+            logger.info(f"Added RECOGNITION_FOR_EXAM relationship between recognition {recognition_id} and exam {exam_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error adding RECOGNITION_FOR_EXAM relationship: {e}")
+            return False 

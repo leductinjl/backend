@@ -88,13 +88,26 @@ class SubjectGraphRepository:
         try:
             result = await self.neo4j.execute_query(query, params)
             if result and len(result) > 0:
+                # Get the node from the first record
+                node = result[0][0]
+                # Log node properties for debugging
+                logger.debug(f"Node properties for subject {subject_id}: {dict(node)}")
+                
+                # Create SubjectNode directly from node properties
+                subject_node = SubjectNode(
+                    subject_id=node.get("subject_id"),
+                    subject_name=node.get("subject_name"),
+                    description=node.get("description"),
+                    subject_code=node.get("subject_code")
+                )
+                
                 logger.info(f"Successfully retrieved subject {subject_id}")
-                return SubjectNode.from_record({"s": result[0][0]})
+                return subject_node
             
             logger.info(f"No subject found with ID {subject_id}")
             return None
         except Exception as e:
-            logger.error(f"Error retrieving subject by ID {subject_id}: {e}")
+            logger.error(f"Error retrieving subject by ID {subject_id}: {e}", exc_info=True)
             return None
     
     async def delete(self, subject_id):
@@ -221,4 +234,68 @@ class SubjectGraphRepository:
             return subjects
         except Exception as e:
             logger.error(f"Error retrieving all subjects: {e}")
-            return [] 
+            return []
+    
+    async def add_includes_subject_relationship(self, exam_id: str, subject_id: str) -> bool:
+        """
+        Add INCLUDES_SUBJECT relationship between Exam and Subject.
+        
+        Args:
+            exam_id: ID of the exam
+            subject_id: ID of the subject
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        query = f"""
+        MATCH (e:Exam {{exam_id: $exam_id}})
+        MATCH (s:Subject {{subject_id: $subject_id}})
+        MERGE (e)-[r:{INCLUDES_SUBJECT_REL}]->(s)
+        RETURN r
+        """
+        params = {
+            "exam_id": exam_id,
+            "subject_id": subject_id
+        }
+        
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            success = result and len(result) > 0
+            if success:
+                logger.info(f"Created INCLUDES_SUBJECT relationship between Exam {exam_id} and Subject {subject_id}")
+            return success
+        except Exception as e:
+            logger.error(f"Error creating INCLUDES_SUBJECT relationship: {e}")
+            return False
+    
+    async def add_for_subject_relationship(self, score_id: str, subject_id: str) -> bool:
+        """
+        Add FOR_SUBJECT relationship between Score and Subject.
+        
+        Args:
+            score_id: ID of the score
+            subject_id: ID of the subject
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        query = f"""
+        MATCH (sc:Score {{score_id: $score_id}})
+        MATCH (s:Subject {{subject_id: $subject_id}})
+        MERGE (sc)-[r:{FOR_SUBJECT_REL}]->(s)
+        RETURN r
+        """
+        params = {
+            "score_id": score_id,
+            "subject_id": subject_id
+        }
+        
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            success = result and len(result) > 0
+            if success:
+                logger.info(f"Created FOR_SUBJECT relationship between Score {score_id} and Subject {subject_id}")
+            return success
+        except Exception as e:
+            logger.error(f"Error creating FOR_SUBJECT relationship: {e}")
+            return False 

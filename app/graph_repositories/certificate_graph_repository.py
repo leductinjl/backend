@@ -252,4 +252,68 @@ class CertificateGraphRepository:
             return certificates
         except Exception as e:
             print(f"Error getting all certificates: {e}")
-            return [] 
+            return []
+            
+    async def add_issued_to_relationship(self, certificate_id, candidate_id):
+        """
+        Create a relationship between a certificate and a candidate.
+        
+        Args:
+            certificate_id: ID of the certificate
+            candidate_id: ID of the candidate who received the certificate
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            query = f"""
+            MATCH (cert:Certificate {{certificate_id: $certificate_id}})
+            MATCH (c:Candidate {{candidate_id: $candidate_id}})
+            MERGE (c)-[r:{EARNS_CERTIFICATE_REL}]->(cert)
+            SET r.updated_at = datetime()
+            RETURN r
+            """
+            
+            params = {
+                "certificate_id": certificate_id,
+                "candidate_id": candidate_id
+            }
+            
+            await self.neo4j.execute_query(query, params)
+            print(f"Added EARNS_CERTIFICATE relationship between candidate {candidate_id} and certificate {certificate_id}")
+            return True
+        except Exception as e:
+            print(f"Error adding EARNS_CERTIFICATE relationship: {e}")
+            return False
+    
+    async def add_for_exam_relationship(self, certificate_id, exam_id):
+        """
+        Create a relationship between a certificate and an exam.
+        
+        Args:
+            certificate_id: ID of the certificate
+            exam_id: ID of the exam the certificate was given for
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            query = f"""
+            MATCH (cert:Certificate {{certificate_id: $certificate_id}})
+            MATCH (e:Exam {{exam_id: $exam_id}})
+            MERGE (cert)-[r:{CERTIFICATE_FOR_EXAM_REL}]->(e)
+            SET r.updated_at = datetime()
+            RETURN r
+            """
+            
+            params = {
+                "certificate_id": certificate_id,
+                "exam_id": exam_id
+            }
+            
+            await self.neo4j.execute_query(query, params)
+            print(f"Added CERTIFICATE_FOR_EXAM relationship between certificate {certificate_id} and exam {exam_id}")
+            return True
+        except Exception as e:
+            print(f"Error adding CERTIFICATE_FOR_EXAM relationship: {e}")
+            return False 

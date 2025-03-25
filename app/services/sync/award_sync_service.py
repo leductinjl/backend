@@ -10,6 +10,7 @@ from typing import Optional, Tuple, List, Union, Dict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 from neo4j import AsyncDriver
 
 from app.domain.models.award import Award
@@ -17,6 +18,7 @@ from app.domain.graph_models.award_node import AwardNode
 from app.repositories.award_repository import AwardRepository
 from app.graph_repositories.award_graph_repository import AwardGraphRepository
 from app.services.sync.base_sync_service import BaseSyncService
+from app.domain.models.candidate_exam import CandidateExam
 
 logger = logging.getLogger(__name__)
 
@@ -179,18 +181,31 @@ class AwardSyncService(BaseSyncService):
         # Check if award node exists before syncing relationships
         award_node = await self.graph_repository.get_by_id(award_id)
         if not award_node:
-            logger.warning(f"Award node {award_id} not found in Neo4j, skipping relationship sync")
-            return {
-                "error": "Award node not found in Neo4j",
-                "candidate": 0,
-                "exam": 0,
-                "organization": 0
-            }
+            # Try to create the node first if it doesn't exist
+            logger.warning(f"Award node {award_id} not found in Neo4j, trying to create it first")
+            
+            # Get award from SQL database
+            award = await self.sql_repository.get_by_id(award_id)
+            if not award:
+                logger.error(f"Award {award_id} not found in SQL database")
+                return {
+                    "error": "Award not found in SQL database",
+                    "candidate": 0,
+                    "exam": 0
+                }
+                
+            # Create the node
+            if not await self.sync_node_by_id(award_id):
+                logger.error(f"Failed to create award node {award_id} in Neo4j")
+                return {
+                    "error": "Failed to create award node in Neo4j",
+                    "candidate": 0,
+                    "exam": 0
+                }
         
         relationship_counts = {
             "candidate": 0,
-            "exam": 0,
-            "organization": 0
+            "exam": 0
         }
         
         try:
@@ -200,21 +215,37 @@ class AwardSyncService(BaseSyncService):
                 logger.error(f"Award {award_id} not found in SQL database")
                 return relationship_counts
             
-            # Extract candidate_id if available
-            candidate_id = getattr(award, 'candidate_id', None)
+            # Extract candidate_id through candidate_exam
+            candidate_exam = getattr(award, 'candidate_exam', None)
+            candidate_id = None
+            exam_id = None
             
-            # Sync AWARDED_TO relationship (award-candidate)
+            if candidate_exam:
+                # Get candidate information
+                candidate = getattr(candidate_exam, 'candidate', None)
+                if candidate:
+                    candidate_id = getattr(candidate, 'candidate_id', None)
+                
+                # Get exam information
+                exam = getattr(candidate_exam, 'exam', None)
+                if exam:
+                    exam_id = getattr(exam, 'exam_id', None)
+            
+            # Sync EARNS_AWARD relationship (Candidate-Award)
             if candidate_id:
+                logger.info(f"Creating relationship between candidate {candidate_id} and award {award_id}")
                 success = await self.graph_repository.add_awarded_to_relationship(award_id, candidate_id)
                 if success:
                     relationship_counts["candidate"] += 1
+                    logger.info(f"Successfully added EARNS_AWARD relationship: {candidate_id} -> {award_id}")
             
-            # Extract issuing_organization if available
-            issuing_org = getattr(award, 'issuing_organization', None)
-            if issuing_org:
-                # In a real implementation, we would add relationship to organization
-                # This is a placeholder for future implementation
-                relationship_counts["organization"] += 0
+            # Sync AWARD_FOR_EXAM relationship (Award-Exam)
+            if exam_id:
+                logger.info(f"Creating relationship between award {award_id} and exam {exam_id}")
+                success = await self.graph_repository.add_award_for_exam_relationship(award_id, exam_id)
+                if success:
+                    relationship_counts["exam"] += 1
+                    logger.info(f"Successfully added AWARD_FOR_EXAM relationship: {award_id} -> {exam_id}")
             
             logger.info(f"Award relationship synchronization completed for {award_id}: {relationship_counts}")
             return relationship_counts
@@ -237,7 +268,11 @@ class AwardSyncService(BaseSyncService):
         
         try:
             # Get all awards from SQL database
-            query = select(Award)
+            query = select(Award).options(
+                # Use class-bound attributes directly instead of strings
+                joinedload(Award.candidate_exam).joinedload(CandidateExam.candidate),
+                joinedload(Award.candidate_exam).joinedload(CandidateExam.exam)
+            )
             if limit:
                 query = query.limit(limit)
                 
@@ -251,8 +286,7 @@ class AwardSyncService(BaseSyncService):
             # Aggregated counts for all relationship types
             relationship_counts = {
                 "candidate": 0,
-                "exam": 0,
-                "organization": 0
+                "exam": 0
             }
             
             # For each award, sync relationships
@@ -265,15 +299,14 @@ class AwardSyncService(BaseSyncService):
                         failure_count += 1
                         continue
                     
-                    # Verify award exists in Neo4j
-                    award_node = await self.graph_repository.get_by_id(award_id)
-                    if not award_node:
-                        logger.warning(f"Award {award_id} not found in Neo4j, skipping relationship sync")
-                        failure_count += 1
-                        continue
-                    
                     # Sync relationships for this award
                     results = await self.sync_relationship_by_id(award_id)
+                    
+                    # Check if there was an error
+                    if 'error' in results:
+                        logger.warning(f"Encountered error for award {award_id}: {results['error']}")
+                        failure_count += 1
+                        continue
                     
                     # Update aggregated counts
                     for key, value in results.items():
@@ -306,5 +339,8 @@ class AwardSyncService(BaseSyncService):
                 "success": 0,
                 "failed": 0,
                 "error": str(e),
-                "relationships": {}
+                "relationships": {
+                    "candidate": 0,
+                    "exam": 0
+                }
             } 

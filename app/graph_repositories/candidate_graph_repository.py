@@ -644,7 +644,7 @@ class CandidateGraphRepository:
         
         Args:
             candidate_id: ID of the candidate
-            schedule_id: ID of the exam schedule
+            schedule_id: ID of the exam schedule (SQL: exam_schedule_id, Neo4j: schedule_id)
             relationship_data: Additional data for the relationship
             
         Returns:

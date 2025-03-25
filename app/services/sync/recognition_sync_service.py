@@ -170,14 +170,12 @@ class RecognitionSyncService(BaseSyncService):
             return {
                 "error": "Recognition node not found in Neo4j",
                 "candidate": 0,
-                "award": 0,
-                "organization": 0
+                "exam": 0
             }
         
         relationship_counts = {
             "candidate": 0,
-            "award": 0,
-            "organization": 0
+            "exam": 0
         }
         
         try:
@@ -187,36 +185,57 @@ class RecognitionSyncService(BaseSyncService):
                 logger.error(f"Recognition {recognition_id} not found in SQL database")
                 return relationship_counts
             
-            # Extract candidate_id if available
-            candidate_id = getattr(recognition, 'candidate_id', None)
+            # Extract candidate_id and exam_id from candidate_exam
+            candidate_id = None
+            exam_id = None
+            
+            # Get candidate_id and exam_id using direct SQL query
+            from sqlalchemy import text
+            query = text("""
+                SELECT ce.candidate_id, ce.exam_id 
+                FROM recognition r
+                JOIN candidate_exam ce ON r.candidate_exam_id = ce.candidate_exam_id
+                WHERE r.recognition_id = :recognition_id
+            """)
+            result = await self.db_session.execute(query, {"recognition_id": recognition_id})
+            row = result.first()
+            
+            if row:
+                candidate_id, exam_id = row
+                logger.info(f"Found via SQL query: candidate_id={candidate_id}, exam_id={exam_id}")
+            
+            # Fallback to ORM relationships if SQL query doesn't return results
+            if not candidate_id and hasattr(recognition, 'candidate_exam') and recognition.candidate_exam:
+                candidate_id = getattr(recognition.candidate_exam, 'candidate_id', None)
+                exam_id = getattr(recognition.candidate_exam, 'exam_id', None)
             
             # Sync RECEIVED_BY relationship (recognition-candidate)
             if candidate_id:
                 success = await self.graph_repository.add_received_by_relationship(recognition_id, candidate_id)
                 if success:
                     relationship_counts["candidate"] += 1
+                    logger.info(f"Successfully added RECEIVES_RECOGNITION relationship for candidate {candidate_id}")
+                else:
+                    logger.warning(f"Failed to add RECEIVES_RECOGNITION relationship for candidate {candidate_id}")
+            else:
+                logger.warning(f"No candidate_id found for recognition {recognition_id}")
             
-            # Extract award_id if available
-            award_id = getattr(recognition, 'award_id', None)
-            
-            # Sync FOR_AWARD relationship (recognition-award)
-            if award_id:
-                success = await self.graph_repository.add_for_award_relationship(recognition_id, award_id)
+            # Sync FOR_EXAM relationship (recognition-exam)
+            if exam_id:
+                success = await self.graph_repository.add_for_exam_relationship(recognition_id, exam_id)
                 if success:
-                    relationship_counts["award"] += 1
-            
-            # Extract issuing_organization if available
-            issuing_org = getattr(recognition, 'issuing_organization', None)
-            if issuing_org:
-                # In a real implementation, we would add relationship to organization
-                # This is a placeholder for future implementation
-                relationship_counts["organization"] += 0
+                    relationship_counts["exam"] += 1
+                    logger.info(f"Successfully added RECOGNITION_FOR_EXAM relationship for exam {exam_id}")
+                else:
+                    logger.warning(f"Failed to add RECOGNITION_FOR_EXAM relationship for exam {exam_id}")
+            else:
+                logger.warning(f"No exam_id found for recognition {recognition_id}")
             
             logger.info(f"Recognition relationship synchronization completed for {recognition_id}: {relationship_counts}")
             return relationship_counts
             
         except Exception as e:
-            logger.error(f"Error synchronizing relationships for recognition {recognition_id}: {e}")
+            logger.error(f"Error synchronizing relationships for recognition {recognition_id}: {e}", exc_info=True)
             return relationship_counts
     
     async def sync_all_relationships(self, limit: Optional[int] = None) -> Dict[str, int]:
@@ -232,30 +251,35 @@ class RecognitionSyncService(BaseSyncService):
         logger.info(f"Synchronizing relationships for all recognitions (limit={limit})")
         
         try:
-            # Get all recognitions from SQL database
-            recognitions, total_count = await self.sql_repository.get_all(limit=limit)
+            # Import text for SQL queries
+            from sqlalchemy import text
             
-            total_recognitions = len(recognitions)
+            # Get all recognition IDs with related candidate and exam IDs in a single query
+            sql_query = """
+                SELECT r.recognition_id, ce.candidate_id, ce.exam_id 
+                FROM recognition r
+                JOIN candidate_exam ce ON r.candidate_exam_id = ce.candidate_exam_id
+            """
+            if limit:
+                sql_query += f" LIMIT {limit}"
+            
+            query = text(sql_query)
+            result = await self.db_session.execute(query)
+            recognition_data = [(row[0], row[1], row[2]) for row in result.fetchall()]
+            
+            total_recognitions = len(recognition_data)
             success_count = 0
             failure_count = 0
             
             # Aggregated counts for all relationship types
             relationship_counts = {
                 "candidate": 0,
-                "award": 0,
-                "organization": 0
+                "exam": 0
             }
             
-            # For each recognition, sync relationships
-            for recognition in recognitions:
+            # For each recognition, sync relationships directly
+            for recognition_id, candidate_id, exam_id in recognition_data:
                 try:
-                    # Get recognition_id safely - handle both ORM objects and dictionaries
-                    recognition_id = recognition.recognition_id if hasattr(recognition, 'recognition_id') else recognition.get("recognition_id")
-                    if not recognition_id:
-                        logger.error(f"Missing recognition_id in recognition object: {recognition}")
-                        failure_count += 1
-                        continue
-                    
                     # Verify recognition exists in Neo4j
                     recognition_node = await self.graph_repository.get_by_id(recognition_id)
                     if not recognition_node:
@@ -263,19 +287,32 @@ class RecognitionSyncService(BaseSyncService):
                         failure_count += 1
                         continue
                     
-                    # Sync relationships for this recognition
-                    results = await self.sync_relationship_by_id(recognition_id)
+                    # Track relationships for this recognition
+                    recognition_relationships = {
+                        "candidate": 0,
+                        "exam": 0
+                    }
                     
-                    # Update aggregated counts
-                    for key, value in results.items():
-                        if key in relationship_counts:
-                            relationship_counts[key] += value
+                    # Sync RECEIVED_BY relationship (recognition-candidate)
+                    if candidate_id:
+                        success = await self.graph_repository.add_received_by_relationship(recognition_id, candidate_id)
+                        if success:
+                            recognition_relationships["candidate"] += 1
+                            relationship_counts["candidate"] += 1
+                            logger.debug(f"Added RECEIVES_RECOGNITION relationship for candidate {candidate_id}")
                     
+                    # Sync FOR_EXAM relationship (recognition-exam)
+                    if exam_id:
+                        success = await self.graph_repository.add_for_exam_relationship(recognition_id, exam_id)
+                        if success:
+                            recognition_relationships["exam"] += 1
+                            relationship_counts["exam"] += 1
+                            logger.debug(f"Added RECOGNITION_FOR_EXAM relationship for exam {exam_id}")
+                    
+                    logger.info(f"Recognition {recognition_id} relationships: {recognition_relationships}")
                     success_count += 1
                     
                 except Exception as e:
-                    # Get recognition_id safely for logging
-                    recognition_id = getattr(recognition, 'recognition_id', None) if hasattr(recognition, 'recognition_id') else recognition.get("recognition_id", "unknown")
                     logger.error(f"Error synchronizing relationships for recognition {recognition_id}: {e}")
                     failure_count += 1
             
@@ -291,7 +328,7 @@ class RecognitionSyncService(BaseSyncService):
             return result
             
         except Exception as e:
-            logger.error(f"Error during recognition relationships synchronization: {e}")
+            logger.error(f"Error during recognition relationships synchronization: {e}", exc_info=True)
             return {
                 "total_recognitions": 0,
                 "success": 0,

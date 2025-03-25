@@ -10,6 +10,7 @@ from typing import Optional, Tuple, Dict, Any, List, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from neo4j import AsyncDriver
+from sqlalchemy import text
 
 from app.domain.models.subject import Subject
 from app.domain.graph_models.subject_node import SubjectNode
@@ -134,7 +135,7 @@ class SubjectSyncService(BaseSyncService):
         """
         Synchronize relationships for a specific subject.
         
-        Subjects may have relationships with exams, scores, and other entities.
+        Subjects have relationships with exams and scores through exam_subject table.
         This method ensures these relationships are properly established in Neo4j.
         
         Args:
@@ -161,19 +162,67 @@ class SubjectSyncService(BaseSyncService):
         }
         
         try:
-            # In a complete implementation, we would:
-            # 1. Get related entities from SQL database (exams, scores, etc.)
-            # 2. Create relationships in Neo4j
-            # 3. Count successful relationships
+            # Get all exam relationships through exam_subject
+            sql_query = """
+                SELECT DISTINCT 
+                    e.exam_id,
+                    e.exam_name,
+                    es.exam_subject_id
+                FROM 
+                    exam_subject es
+                JOIN 
+                    exam e ON es.exam_id = e.exam_id
+                WHERE 
+                    es.subject_id = :subject_id
+            """
             
-            # This is a minimal implementation to satisfy the abstract method requirement
-            logger.info(f"Relationship synchronization for subject {subject_id} completed: {relationship_counts}")
+            result = await self.db_session.execute(text(sql_query), {"subject_id": subject_id})
+            exam_relationships = result.fetchall()
+            
+            # Sync exam relationships
+            for exam_row in exam_relationships:
+                exam_id, exam_name, exam_subject_id = exam_row
+                if exam_id:
+                    success = await self.graph_repository.add_includes_subject_relationship(exam_id, subject_id)
+                    if success:
+                        relationship_counts["exams"] += 1
+                        logger.info(f"Added INCLUDES_SUBJECT relationship between exam {exam_id} and subject {subject_id}")
+            
+            # Get all score relationships through exam_subject and exam_score
+            score_query = """
+                SELECT DISTINCT 
+                    es.exam_score_id,
+                    es.score,
+                    es.status,
+                    es.graded_by,
+                    es.graded_at
+                FROM 
+                    exam_score es
+                JOIN 
+                    exam_subject esub ON es.exam_subject_id = esub.exam_subject_id
+                WHERE 
+                    esub.subject_id = :subject_id
+            """
+            
+            score_result = await self.db_session.execute(text(score_query), {"subject_id": subject_id})
+            score_relationships = score_result.fetchall()
+            
+            # Sync score relationships
+            for score_row in score_relationships:
+                score_id, score_value, status, graded_by, graded_at = score_row
+                if score_id:
+                    success = await self.graph_repository.add_for_subject_relationship(score_id, subject_id)
+                    if success:
+                        relationship_counts["scores"] += 1
+                        logger.info(f"Added FOR_SUBJECT relationship between score {score_id} and subject {subject_id}")
+            
+            logger.info(f"Subject relationship synchronization completed for {subject_id}: {relationship_counts}")
             return relationship_counts
             
         except Exception as e:
-            logger.error(f"Error synchronizing relationships for subject {subject_id}: {e}")
+            logger.error(f"Error synchronizing relationships for subject {subject_id}: {e}", exc_info=True)
             return relationship_counts
-    
+            
     async def sync_all_relationships(self, limit: Optional[int] = None) -> Dict[str, int]:
         """
         Synchronize relationships for all subjects.

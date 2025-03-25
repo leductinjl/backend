@@ -73,10 +73,21 @@ class ExamLocationGraphRepository:
         """
         params = {"location_id": location_id}
         
-        result = await self.neo4j.execute_query(query, params)
-        if result and len(result) > 0:
-            return ExamLocationNode.from_record({"l": result[0][0]})
-        return None
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            if result and len(result) > 0:
+                # Check if the returned node has the expected property
+                node = result[0][0]
+                if 'location_id' not in node:
+                    # Add the location_id to the node data
+                    node_dict = dict(node)
+                    node_dict['location_id'] = location_id
+                    return ExamLocationNode.from_record({"l": node_dict})
+                return ExamLocationNode.from_record({"l": node})
+            return None
+        except Exception as e:
+            logger.error(f"Error retrieving exam location {location_id}: {e}")
+            return None
     
     async def delete(self, location_id):
         """
@@ -203,7 +214,15 @@ class ExamLocationGraphRepository:
         Returns:
             bool: True if successful, False otherwise
         """
-        query = RELATIONSHIPS["HELD_AT"]["create_query"]
+        # Instead of using the ontology query directly, we'll create a custom query
+        # that doesn't require the missing parameters
+        query = """
+        MATCH (e:Exam {exam_id: $exam_id})
+        MATCH (l:ExamLocation {location_id: $location_id})
+        MERGE (e)-[r:HELD_AT]->(l)
+        SET r.updated_at = datetime()
+        RETURN r
+        """
         
         params = {
             "exam_id": exam_id,
@@ -216,4 +235,56 @@ class ExamLocationGraphRepository:
             return True
         except Exception as e:
             logger.error(f"Error adding HELD_AT relationship: {e}")
+            return False
+            
+    async def add_hosts_exam_relationship(self, location_id, exam_id):
+        """
+        Create a HOSTS_EXAM relationship between an ExamLocation and an Exam.
+        This is the inverse of HELD_AT relationship.
+        
+        Args:
+            location_id: ID of the location
+            exam_id: ID of the exam
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # In Neo4j, we're using the HELD_AT relationship (from Exam to Location)
+            # So we just leverage the existing method but swap the order
+            return await self.add_held_at_relationship(exam_id, location_id)
+        except Exception as e:
+            logger.error(f"Error adding HOSTS_EXAM relationship: {e}")
+            return False
+    
+    async def add_has_room_relationship(self, location_id, room_id):
+        """
+        Create a HAS_ROOM relationship between an ExamLocation and an ExamRoom.
+        
+        Args:
+            location_id: ID of the location
+            room_id: ID of the room
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        query = """
+        MATCH (l:ExamLocation {location_id: $location_id})
+        MATCH (r:ExamRoom {room_id: $room_id})
+        MERGE (l)-[rel:HAS_ROOM]->(r)
+        SET rel.updated_at = datetime()
+        RETURN rel
+        """
+        
+        params = {
+            "location_id": location_id,
+            "room_id": room_id
+        }
+        
+        try:
+            await self.neo4j.execute_query(query, params)
+            logger.info(f"Added HAS_ROOM relationship between location {location_id} and room {room_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error adding HAS_ROOM relationship: {e}")
             return False 

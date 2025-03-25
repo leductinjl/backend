@@ -168,15 +168,11 @@ class SchoolSyncService(BaseSyncService):
             logger.warning(f"School node {school_id} not found in Neo4j, skipping relationship sync")
             return {
                 "error": "School node not found in Neo4j",
-                "majors": 0,
-                "candidates": 0,
-                "management_units": 0
+                "majors": 0
             }
         
         relationship_counts = {
-            "majors": 0,
-            "candidates": 0,
-            "management_units": 0
+            "majors": 0
         }
         
         try:
@@ -184,10 +180,14 @@ class SchoolSyncService(BaseSyncService):
             success = await self.sync_school_majors(school_id)
             
             if success:
-                # Get school again to count relationships
-                school = await self.sql_repository.get_by_id(school_id)
-                if school and hasattr(school, 'school_majors'):
-                    relationship_counts["majors"] = len(school.school_majors)
+                # Get major count from repository
+                from app.repositories.school_major_repository import SchoolMajorRepository
+                school_major_repository = SchoolMajorRepository(self.db_session)
+                
+                # Get count directly from repository instead of accessing school relationships
+                query_result = await school_major_repository.get_all(filters={"school_id": school_id})
+                school_majors = query_result[0] if isinstance(query_result, tuple) and len(query_result) > 0 else []
+                relationship_counts["majors"] = len(school_majors)
             
             logger.info(f"School relationship synchronization completed for {school_id}: {relationship_counts}")
             return relationship_counts
@@ -218,9 +218,7 @@ class SchoolSyncService(BaseSyncService):
             
             # Aggregated counts for all relationship types
             relationship_counts = {
-                "majors": 0,
-                "candidates": 0,
-                "management_units": 0
+                "majors": 0
             }
             
             # For each school, sync relationships
@@ -274,7 +272,9 @@ class SchoolSyncService(BaseSyncService):
                 "success": 0,
                 "failed": 0,
                 "error": str(e),
-                "relationships": {}
+                "relationships": {
+                    "majors": 0
+                }
             }
     
     async def sync_school_majors(self, school_id: str) -> bool:

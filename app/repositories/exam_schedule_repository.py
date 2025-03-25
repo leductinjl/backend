@@ -474,21 +474,71 @@ class ExamScheduleRepository:
             exam_schedule_id: ID of the exam schedule to delete
             
         Returns:
-            Boolean indicating success
+            True if deleted successfully, False if not found
         """
         try:
             # Check if the exam schedule exists
-            exam_schedule = await self.get_by_id(exam_schedule_id)
+            query = select(ExamSchedule).filter(ExamSchedule.exam_schedule_id == exam_schedule_id)
+            result = await self.db.execute(query)
+            exam_schedule = result.scalars().first()
+            
             if not exam_schedule:
                 return False
             
             # Delete the exam schedule
-            stmt = delete(ExamSchedule).where(ExamSchedule.exam_schedule_id == exam_schedule_id)
-            result = await self.db.execute(stmt)
+            delete_stmt = delete(ExamSchedule).where(ExamSchedule.exam_schedule_id == exam_schedule_id)
+            await self.db.execute(delete_stmt)
+            await self.db.commit()
             
-            return result.rowcount > 0
+            self.logger.info(f"Deleted exam schedule with ID {exam_schedule_id}")
+            return True
             
         except Exception as e:
+            self.logger.error(f"Error deleting exam schedule with ID {exam_schedule_id}: {str(e)}")
             await self.db.rollback()
-            self.logger.error(f"Error deleting exam schedule {exam_schedule_id}: {str(e)}")
+            raise
+            
+    async def get_by_candidate_id(self, candidate_id: str) -> List[ExamSchedule]:
+        """
+        Lấy lịch thi của một thí sinh.
+        
+        Phương thức này tìm tất cả lịch thi liên quan đến thí sinh thông qua
+        candidate_exam và candidate_exam_subject.
+        
+        Args:
+            candidate_id: ID của thí sinh cần lấy lịch thi
+            
+        Returns:
+            Danh sách các lịch thi của thí sinh
+        """
+        from app.domain.models.candidate_exam import CandidateExam
+        from app.domain.models.candidate_exam_subject import CandidateExamSubject
+        
+        try:
+            # Xây dựng truy vấn để lấy lịch thi thông qua candidate -> candidate_exam -> candidate_exam_subject -> exam_subject -> exam_schedule
+            query = (
+                select(ExamSchedule)
+                .join(ExamSubject, ExamSchedule.exam_subject_id == ExamSubject.exam_subject_id)
+                .join(CandidateExamSubject, CandidateExamSubject.exam_subject_id == ExamSubject.exam_subject_id)
+                .join(CandidateExam, CandidateExamSubject.candidate_exam_id == CandidateExam.candidate_exam_id)
+                .filter(CandidateExam.candidate_id == candidate_id)
+                .options(
+                    joinedload(ExamSchedule.exam_subject)
+                    .joinedload(ExamSubject.exam),
+                    joinedload(ExamSchedule.exam_subject)
+                    .joinedload(ExamSubject.subject),
+                    joinedload(ExamSchedule.exam_room)
+                    .joinedload(ExamRoom.location)
+                )
+                .order_by(ExamSchedule.start_time)
+            )
+            
+            result = await self.db.execute(query)
+            schedules = result.scalars().unique().all()
+            
+            self.logger.info(f"Retrieved {len(schedules)} exam schedules for candidate {candidate_id}")
+            return schedules
+            
+        except Exception as e:
+            self.logger.error(f"Error getting exam schedules for candidate {candidate_id}: {str(e)}")
             raise 

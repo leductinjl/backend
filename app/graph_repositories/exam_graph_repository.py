@@ -7,6 +7,7 @@ This module defines the ExamGraphRepository class for interacting with Exam node
 from app.domain.graph_models.exam_node import ExamNode, INSTANCE_OF_REL
 from app.infrastructure.ontology.ontology import RELATIONSHIPS
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -96,10 +97,23 @@ class ExamGraphRepository:
         """
         params = {"exam_id": exam_id}
         
-        result = await self.neo4j.execute_query(query, params)
-        if result and len(result) > 0:
-            return ExamNode.from_record({"e": result[0][0]})
-        return None
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            if result and len(result) > 0 and result[0] and result[0][0]:
+                # Lấy dữ liệu từ node Neo4j và chuyển thành dict Python
+                exam_data = dict(result[0][0].items())
+                return ExamNode(
+                    exam_id=exam_data.get("exam_id"),
+                    exam_name=exam_data.get("exam_name"),
+                    exam_type=exam_data.get("exam_type"),
+                    start_date=exam_data.get("start_date"),
+                    end_date=exam_data.get("end_date"),
+                    scope=exam_data.get("scope")
+                )
+            return None
+        except Exception as e:
+            logger.error(f"Error retrieving exam by ID: {e}")
+            return None
     
     async def delete(self, exam_id):
         """
@@ -136,45 +150,100 @@ class ExamGraphRepository:
         Returns:
             True if successful, False otherwise
         """
-        query = RELATIONSHIPS["INCLUDES_SUBJECT"]["create_query"]
-        
-        params = {
-            "exam_id": exam_id,
-            "subject_id": subject_id,
-            "exam_date": relationship_data.get("exam_date") if relationship_data else None,
-            "duration_minutes": relationship_data.get("duration_minutes") if relationship_data else None
-        }
-        
         try:
+            # Sử dụng query tùy chỉnh thay vì query mặc định từ RELATIONSHIPS
+            query = """
+            MATCH (e:Exam {exam_id: $exam_id})
+            MATCH (s:Subject {subject_id: $subject_id})
+            MERGE (e)-[r:INCLUDES_SUBJECT]->(s)
+            SET r.exam_date = $exam_date,
+                r.duration_minutes = $duration_minutes,
+                r.weight = $weight,
+                r.passing_score = $passing_score,
+                r.max_score = $max_score,
+                r.is_required = $is_required,
+                r.additional_info = $additional_info,
+                r.updated_at = datetime()
+            RETURN r
+            """
+            
+            # Đảm bảo relationship_data không là None
+            if relationship_data is None:
+                relationship_data = {}
+            
+            # Chuyển đổi các đối tượng phức tạp thành chuỗi nếu cần
+            additional_info = relationship_data.get("additional_info", "")
+            if isinstance(additional_info, dict):
+                additional_info = json.dumps(additional_info)
+                
+            params = {
+                "exam_id": exam_id,
+                "subject_id": subject_id,
+                "exam_date": relationship_data.get("exam_date"),
+                "duration_minutes": relationship_data.get("duration_minutes"),
+                "weight": relationship_data.get("weight", 1.0),
+                "passing_score": relationship_data.get("passing_score", 0),
+                "max_score": relationship_data.get("max_score", 10),
+                "is_required": relationship_data.get("is_required", True),
+                "additional_info": additional_info
+                # Bỏ thuộc tính subject_metadata vì nó là đối tượng phức tạp
+            }
+            
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Added INCLUDES_SUBJECT relationship between exam {exam_id} and subject {subject_id}")
             return True
         except Exception as e:
-            print(f"Error adding INCLUDES_SUBJECT relationship: {e}")
+            logger.error(f"Error adding INCLUDES_SUBJECT relationship: {e}")
             return False
     
-    async def add_held_at_relationship(self, exam_id, location_id):
+    async def add_held_at_relationship(self, exam_id, location_id, relationship_data=None):
         """
         Create a relationship between an exam and a location.
         
         Args:
             exam_id: ID of the exam
             location_id: ID of the location
+            relationship_data: Additional data for the relationship
             
         Returns:
             True if successful, False otherwise
         """
-        query = RELATIONSHIPS["HELD_AT"]["create_query"]
-        
-        params = {
-            "exam_id": exam_id,
-            "location_id": location_id
-        }
-        
         try:
+            # Sử dụng query tùy chỉnh thay vì query mặc định từ RELATIONSHIPS
+            query = """
+            MATCH (e:Exam {exam_id: $exam_id})
+            MATCH (l:ExamLocation {location_id: $location_id})
+            MERGE (e)-[r:HELD_AT]->(l)
+            SET r.is_primary = $is_primary,
+                r.is_active = $is_active,
+                r.mapping_metadata_str = $mapping_metadata_str,
+                r.updated_at = datetime()
+            RETURN r
+            """
+            
+            # Đảm bảo relationship_data không là None
+            if relationship_data is None:
+                relationship_data = {}
+            
+            # Chuyển đổi mapping_metadata từ đối tượng phức tạp thành chuỗi JSON
+            mapping_metadata = relationship_data.get("mapping_metadata", {})
+            mapping_metadata_str = ""
+            if isinstance(mapping_metadata, dict) and mapping_metadata:
+                mapping_metadata_str = json.dumps(mapping_metadata)
+                
+            params = {
+                "exam_id": exam_id,
+                "location_id": location_id,
+                "is_primary": relationship_data.get("is_primary", True),
+                "is_active": relationship_data.get("is_active", True),
+                "mapping_metadata_str": mapping_metadata_str
+            }
+            
             await self.neo4j.execute_query(query, params)
+            logger.info(f"Added HELD_AT relationship between exam {exam_id} and location {location_id}")
             return True
         except Exception as e:
-            print(f"Error adding HELD_AT relationship: {e}")
+            logger.error(f"Error adding HELD_AT relationship: {e}")
             return False
     
     async def add_follows_schedule_relationship(self, exam_id, schedule_id):
@@ -188,14 +257,21 @@ class ExamGraphRepository:
         Returns:
             True if successful, False otherwise
         """
-        query = RELATIONSHIPS["FOLLOWS_SCHEDULE"]["create_query"]
-        
-        params = {
-            "exam_id": exam_id,
-            "schedule_id": schedule_id
-        }
-        
         try:
+            # Sử dụng query tùy chỉnh thay vì query mặc định từ RELATIONSHIPS
+            query = """
+            MATCH (e:Exam {exam_id: $exam_id})
+            MATCH (s:ExamSchedule {schedule_id: $schedule_id})
+            MERGE (e)-[r:FOLLOWS_SCHEDULE]->(s)
+            SET r.updated_at = datetime()
+            RETURN r
+            """
+            
+            params = {
+                "exam_id": exam_id,
+                "schedule_id": schedule_id
+            }
+            
             await self.neo4j.execute_query(query, params)
             logger.info(f"Added FOLLOWS_SCHEDULE relationship between exam {exam_id} and schedule {schedule_id}")
             return True

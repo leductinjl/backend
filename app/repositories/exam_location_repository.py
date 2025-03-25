@@ -182,6 +182,9 @@ class ExamLocationRepository:
                 "is_primary": mapping.is_primary if mapping else False,
                 "mapping_id": mapping.mapping_id if mapping else None
             })
+            
+        # Get rooms for this location
+        rooms = await self.get_rooms_by_location_id(location_id)
         
         return {
             "location_id": location.location_id,
@@ -197,8 +200,44 @@ class ExamLocationRepository:
             "is_active": location.is_active,
             "created_at": location.created_at,
             "updated_at": location.updated_at,
-            "exams": exam_details
+            "exams": exam_details,
+            "rooms": rooms
         }
+    
+    async def get_rooms_by_location_id(self, location_id: str) -> List[Dict]:
+        """
+        Get all exam rooms for a specific location.
+        
+        Args:
+            location_id: The ID of the exam location
+            
+        Returns:
+            List of exam rooms for the specified location
+        """
+        try:
+            # Import here to avoid circular imports
+            from app.domain.models.exam_room import ExamRoom
+            
+            # Query for rooms that belong to this location
+            query = select(ExamRoom).filter(ExamRoom.location_id == location_id)
+            result = await self.db.execute(query)
+            rooms = result.scalars().all()
+            
+            # Convert to dictionary
+            room_list = []
+            for room in rooms:
+                room_list.append({
+                    "room_id": room.room_id,
+                    "room_name": room.room_name,
+                    "capacity": room.capacity,
+                    "location_id": room.location_id,
+                    "is_active": room.is_active
+                })
+                
+            return room_list
+        except Exception as e:
+            logger.error(f"Error getting rooms for location {location_id}: {e}")
+            return []
     
     async def get_by_exam_id(self, exam_id: str) -> List[ExamLocation]:
         """

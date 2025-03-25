@@ -99,82 +99,103 @@ class ExamRoomSyncService(BaseSyncService):
             return {
                 "error": "Exam room node not found in Neo4j",
                 "location": 0,
-                "schedules": 0,
-                "exams": 0
+                "schedules": 0
             }
-        
-        relationship_counts = {
-            "location": 0,
-            "schedules": 0,
-            "exams": 0
-        }
         
         try:
             # Get the room data from SQL
             room = await self.sql_repository.get_by_id(room_id)
             if not room:
                 logger.error(f"Exam room {room_id} not found in SQL database")
-                return relationship_counts
+                return {
+                    "location": 0,
+                    "schedules": 0
+                }
             
-            # Use the existing _sync_relationships method
-            await self._sync_relationships(room)
-            
-            # Count relationships
-            if room.get("location_id"):
-                relationship_counts["location"] += 1
-            
-            # Count exam relationships
-            if isinstance(room, dict) and "exams" in room:
-                relationship_counts["exams"] = len(room["exams"])
-            elif hasattr(room, "exams") and room.exams:
-                relationship_counts["exams"] = len(room.exams)
+            # Use the existing _sync_relationships method and get the result
+            relationship_counts = await self._sync_relationships(room)
             
             logger.info(f"Exam room relationship synchronization completed for {room_id}: {relationship_counts}")
             return relationship_counts
             
         except Exception as e:
             logger.error(f"Error synchronizing relationships for exam room {room_id}: {e}")
-            return relationship_counts
+            return {
+                "location": 0,
+                "schedules": 0
+            }
     
-    async def _sync_relationships(self, room: Any) -> None:
+    async def _sync_relationships(self, room: Any) -> Dict[str, int]:
         """
         Synchronize exam room relationships with other nodes.
         
         Args:
             room: The exam room data (ORM model or dictionary)
+            
+        Returns:
+            Dictionary with counts of successfully synced relationships by type
         """
+        # Initialize relationship counts
+        relationship_counts = {
+            "location": 0,
+            "schedules": 0
+        }
+        
         # Extract room_id based on input type
         if isinstance(room, dict):
             room_id = room.get("room_id")
             location_id = room.get("location_id")
-            exams = room.get("exams", [])
+            schedules = room.get("schedules", [])
         elif hasattr(room, "room_id"):
             room_id = room.room_id
             location_id = getattr(room, "location_id", None)
-            exams = getattr(room, "exams", [])
+            schedules = getattr(room, "schedules", [])
         else:
             logger.warning(f"Cannot sync relationships for unsupported room type: {type(room)}")
-            return
+            return relationship_counts
         
         # Sync LOCATED_IN relationship with location
         if location_id:
             # The relationship is already established in the create_relationships_query method
             # of ExamRoomNode, but we could add additional relationships here
-            pass
+            logger.info(f"Room {room_id} is located in location {location_id}")
+            relationship_counts["location"] += 1
         
-        # If there are exams for this room, sync exam relationships
-        for exam in exams:
-            exam_id = None
-            if isinstance(exam, dict):
-                exam_id = exam.get("exam_id")
-            elif hasattr(exam, "exam_id"):
-                exam_id = exam.exam_id
+        # Sync HAS_SCHEDULE relationships
+        if schedules:
+            logger.info(f"Found {len(schedules)} schedules for room {room_id}")
+            # Log all schedules for debugging
+            for i, schedule in enumerate(schedules):
+                if isinstance(schedule, dict):
+                    logger.debug(f"Schedule {i+1} data: {schedule}")
+                else:
+                    logger.debug(f"Schedule {i+1} attributes: {dir(schedule)}")
                 
-            if exam_id:
-                await self.graph_repository.add_exam_relationship(
-                    room_id, 
-                    exam_id
-                )
+            for schedule in schedules:
+                # Extract schedule_id safely
+                schedule_id = None
+                if isinstance(schedule, dict):
+                    schedule_id = schedule.get("schedule_id")
+                    logger.debug(f"Processing schedule: {schedule}")
+                elif hasattr(schedule, "schedule_id"):
+                    schedule_id = schedule.schedule_id
+                elif hasattr(schedule, "exam_schedule_id"):
+                    schedule_id = schedule.exam_schedule_id
+                    
+                if schedule_id:
+                    logger.info(f"Attempting to create relationship for schedule {schedule_id}")
+                    success = await self.graph_repository.add_schedule_relationship(room_id, schedule_id)
+                    if success:
+                        relationship_counts["schedules"] += 1
+                        logger.info(f"Added HAS_SCHEDULE relationship between {room_id} and {schedule_id}")
+                    else:
+                        logger.warning(f"Failed to add HAS_SCHEDULE relationship between {room_id} and {schedule_id}")
+                else:
+                    logger.warning(f"Could not extract schedule_id from schedule data: {schedule}")
+        else:
+            logger.info(f"No schedules found for room {room_id}")
+            
+        return relationship_counts
     
     async def sync_all_nodes(self, limit: Optional[int] = None) -> Tuple[int, int]:
         """
@@ -253,8 +274,7 @@ class ExamRoomSyncService(BaseSyncService):
             # Aggregated counts for all relationship types
             relationship_counts = {
                 "location": 0,
-                "schedules": 0,
-                "exams": 0
+                "schedules": 0
             }
             
             # For each exam room, sync relationships

@@ -82,12 +82,19 @@ class MajorGraphRepository:
         
         try:
             result = await self.neo4j.execute_query(query, params)
-            if result and len(result) > 0:
-                return MajorNode.from_record({"m": result[0][0]})
+            if result and len(result) > 0 and result[0][0] is not None:
+                node_data = dict(result[0][0])
+                # Create MajorNode directly from the node properties
+                return MajorNode(
+                    major_id=node_data.get('major_id'),
+                    major_name=node_data.get('major_name', f"Major {major_id}"),
+                    major_code=node_data.get('major_code'),
+                    description=node_data.get('description')
+                )
             return None
         except Exception as e:
-            self.logger.error(f"Error retrieving major by ID: {str(e)}")
-            raise
+            self.logger.error(f"Error retrieving major by ID {major_id}: {str(e)}")
+            return None  # Return None instead of raising to avoid cascading errors
     
     async def delete(self, major_id: str) -> bool:
         """
@@ -405,4 +412,59 @@ class MajorGraphRepository:
             return related_majors
         except Exception as e:
             self.logger.error(f"Error finding related majors: {str(e)}")
-            return [] 
+            return []
+    
+    async def add_offered_by_relationship(self, major_id: str, school_id: str, start_year: Optional[int] = None) -> bool:
+        """
+        Create OFFERS_MAJOR relationship between a School and a Major.
+        
+        Args:
+            major_id: ID of the major
+            school_id: ID of the school offering the major
+            start_year: The year the school started offering this major
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        # Reuse existing link method
+        return await self.link_major_to_school(
+            major_id=major_id,
+            school_id=school_id,
+            link_data={"start_year": start_year} if start_year else {}
+        )
+    
+    async def add_has_major_relationship(self, degree_id: str, major_id: str) -> bool:
+        """
+        Create a relationship between a Degree and a Major.
+        
+        Args:
+            degree_id: ID of the degree
+            major_id: ID of the major
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        # Define the relationship type from the ontology constants
+        HAS_MAJOR_REL = RELATIONSHIPS.get("HAS_MAJOR", {}).get("type", "HAS_MAJOR")
+        
+        query = f"""
+        MATCH (d:Degree {{degree_id: $degree_id}})
+        MATCH (m:Major {{major_id: $major_id}})
+        MERGE (d)-[r:{HAS_MAJOR_REL}]->(m)
+        ON CREATE SET r.created_at = datetime()
+        ON MATCH SET r.updated_at = datetime()
+        RETURN r
+        """
+        params = {"degree_id": degree_id, "major_id": major_id}
+        
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            if result and len(result) > 0:
+                self.logger.info(f"Created relationship between degree {degree_id} and major {major_id}")
+                return True
+            else:
+                self.logger.warning(f"Failed to create relationship between degree {degree_id} and major {major_id}")
+                return False
+        except Exception as e:
+            self.logger.error(f"Error creating degree-major relationship: {str(e)}")
+            return False 

@@ -6,6 +6,9 @@ This module provides methods for interacting with Award nodes in Neo4j.
 
 from app.domain.graph_models.award_node import AwardNode
 from app.infrastructure.ontology.ontology import RELATIONSHIPS
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Import specific relationships
 EARNS_AWARD_REL = RELATIONSHIPS["EARNS_AWARD"]["type"]
@@ -49,7 +52,7 @@ class AwardGraphRepository:
                 return True
             return False
         except Exception as e:
-            print(f"Error creating/updating award in Neo4j: {e}")
+            logger.error(f"Error creating/updating award in Neo4j: {e}")
             return False
     
     async def _create_instance_of_relationship(self, award_id):
@@ -62,9 +65,9 @@ class AwardGraphRepository:
         try:
             query = AwardNode.create_instance_of_relationship_query()
             await self.neo4j.execute_query(query, {"award_id": award_id})
-            print(f"Created INSTANCE_OF relationship for award {award_id}")
+            logger.info(f"Created INSTANCE_OF relationship for award {award_id}")
         except Exception as e:
-            print(f"Error creating INSTANCE_OF relationship for award {award_id}: {e}")
+            logger.error(f"Error creating INSTANCE_OF relationship for award {award_id}: {e}")
             raise
     
     async def get_by_id(self, award_id):
@@ -108,7 +111,7 @@ class AwardGraphRepository:
             await self.neo4j.execute_query(query, params)
             return True
         except Exception as e:
-            print(f"Error deleting award from Neo4j: {e}")
+            logger.error(f"Error deleting award from Neo4j: {e}")
             return False
     
     async def get_by_candidate(self, candidate_id):
@@ -137,7 +140,7 @@ class AwardGraphRepository:
             
             return awards
         except Exception as e:
-            print(f"Error getting awards for candidate: {e}")
+            logger.error(f"Error getting awards for candidate: {e}")
             return []
     
     async def get_by_exam(self, exam_id):
@@ -166,7 +169,7 @@ class AwardGraphRepository:
             
             return awards
         except Exception as e:
-            print(f"Error getting awards for exam: {e}")
+            logger.error(f"Error getting awards for exam: {e}")
             return []
     
     async def get_by_award_type(self, award_type):
@@ -195,7 +198,7 @@ class AwardGraphRepository:
             
             return awards
         except Exception as e:
-            print(f"Error getting awards by type: {e}")
+            logger.error(f"Error getting awards by type: {e}")
             return []
     
     async def get_by_organization(self, organization):
@@ -225,7 +228,7 @@ class AwardGraphRepository:
             
             return awards
         except Exception as e:
-            print(f"Error getting awards by organization: {e}")
+            logger.error(f"Error getting awards by organization: {e}")
             return []
     
     async def get_all_awards(self, limit=100):
@@ -255,5 +258,69 @@ class AwardGraphRepository:
             
             return awards
         except Exception as e:
-            print(f"Error getting all awards: {e}")
-            return [] 
+            logger.error(f"Error getting all awards: {e}")
+            return []
+    
+    async def add_awarded_to_relationship(self, award_id, candidate_id):
+        """
+        Create a relationship between a candidate and an award.
+        
+        Args:
+            award_id: ID of the award
+            candidate_id: ID of the candidate who received the award
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            query = f"""
+            MATCH (c:Candidate {{candidate_id: $candidate_id}})
+            MATCH (a:Award {{award_id: $award_id}})
+            MERGE (c)-[r:{EARNS_AWARD_REL}]->(a)
+            SET r.updated_at = datetime()
+            RETURN r
+            """
+            
+            params = {
+                "award_id": award_id,
+                "candidate_id": candidate_id
+            }
+            
+            await self.neo4j.execute_query(query, params)
+            logger.info(f"Added EARNS_AWARD relationship between candidate {candidate_id} and award {award_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error adding EARNS_AWARD relationship: {e}")
+            return False
+    
+    async def add_award_for_exam_relationship(self, award_id, exam_id):
+        """
+        Create a relationship between an award and an exam.
+        
+        Args:
+            award_id: ID of the award
+            exam_id: ID of the exam the award was given for
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            query = f"""
+            MATCH (a:Award {{award_id: $award_id}})
+            MATCH (e:Exam {{exam_id: $exam_id}})
+            MERGE (a)-[r:{AWARD_FOR_EXAM_REL}]->(e)
+            SET r.updated_at = datetime()
+            RETURN r
+            """
+            
+            params = {
+                "award_id": award_id,
+                "exam_id": exam_id
+            }
+            
+            await self.neo4j.execute_query(query, params)
+            logger.info(f"Added AWARD_FOR_EXAM relationship between award {award_id} and exam {exam_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error adding AWARD_FOR_EXAM relationship: {e}")
+            return False 

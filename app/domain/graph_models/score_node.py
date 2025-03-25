@@ -5,6 +5,9 @@ This module defines the ScoreNode class for representing Score entities in the N
 """
 
 from app.infrastructure.ontology.ontology import RELATIONSHIPS
+import logging
+import uuid
+from datetime import datetime
 
 # Import specific relationships
 INSTANCE_OF_REL = RELATIONSHIPS["INSTANCE_OF"]["type"]
@@ -21,57 +24,53 @@ class ScoreNode:
     
     def __init__(
         self, 
-        score_id,
-        candidate_id=None,
-        subject_id=None,
-        exam_id=None,
-        score_value=None,
-        status=None,
-        graded_by=None,
-        graded_at=None,
-        score_history=None,
-        # Thuộc tính bổ sung cho mối quan hệ RECEIVES_SCORE
-        exam_name=None,
-        subject_name=None,
-        registration_status=None,
-        registration_date=None,
-        is_required=None,
-        exam_date=None,
-        name=None
+        score_id: str = None,
+        score_value: float = None,
+        status: str = None,
+        graded_by: str = None,
+        graded_at: datetime = None,
+        score_history: dict = None,
+        name: str = None,
+        # Additional properties for relationship synchronization
+        candidate_id: str = None,
+        subject_id: str = None,
+        exam_id: str = None,
+        subject_name: str = None,
+        exam_name: str = None
     ):
-        # Thuộc tính định danh - bắt buộc
+        """
+        Initialize a new ScoreNode.
+        
+        Args:
+            score_id: Unique identifier for the score (exam_score_id)
+            score_value: The numerical score value
+            status: Status of the score (e.g., pending, graded)
+            graded_by: ID of the user who graded this score
+            graded_at: Timestamp when the grading occurred
+            score_history: History of changes to the score
+            name: Display name for the score
+            candidate_id: ID of the candidate who received this score
+            subject_id: ID of the subject the score is for
+            exam_id: ID of the exam the score is from
+            subject_name: Name of the subject
+            exam_name: Name of the exam
+        """
         self.score_id = score_id
-        
-        # Tên hiển thị cho node
-        self.name = name
-        if not self.name:
-            if score_value is not None and subject_name:
-                self.name = f"{subject_name}: {score_value}"
-            elif score_value is not None and exam_name:
-                self.name = f"{exam_name}: {score_value}"
-            else:
-                self.name = f"Score {score_id}"
-        
-        # Thuộc tính quan hệ - tùy chọn
-        self.candidate_id = candidate_id
-        self.subject_id = subject_id
-        self.exam_id = exam_id
-        
-        # Thuộc tính dữ liệu - tùy chọn
+        self.exam_score_id = score_id  # Alias for compatibility
         self.score_value = score_value
         self.status = status
         self.graded_by = graded_by
         self.graded_at = graded_at
         self.score_history = score_history
+        self.name = name or f"Score {score_id}"
         
-        # Thuộc tính cho mối quan hệ RECEIVES_SCORE
-        self.exam_name = exam_name
+        # Relationship properties
+        self.candidate_id = candidate_id
+        self.subject_id = subject_id
+        self.exam_id = exam_id
         self.subject_name = subject_name
-        self.registration_status = registration_status
-        self.registration_date = registration_date
-        self.is_required = is_required
-        self.exam_date = exam_date
-        
+        self.exam_name = exam_name
+    
     @staticmethod
     def create_query():
         """
@@ -155,32 +154,26 @@ class ScoreNode:
     
     def to_dict(self):
         """
-        Chuyển đổi thành dictionary để sử dụng trong Neo4j query.
-        """
-        # Convert decimal.Decimal to float for Neo4j compatibility
-        score_value = float(self.score_value) if self.score_value is not None else None
+        Convert ScoreNode to dictionary for Neo4j queries.
         
+        Returns:
+            Dictionary representation of the ScoreNode
+        """
         return {
-            # Thuộc tính cơ bản của node
             "score_id": self.score_id,
-            "name": self.name,
-            "score_value": score_value,
+            "exam_score_id": self.score_id,  # Include both forms for compatibility
+            "score_value": self.score_value,
             "status": self.status,
             "graded_by": self.graded_by,
             "graded_at": self.graded_at,
             "score_history": self.score_history,
-            
-            # Các trường liên quan đến relationship, không được lưu vào node
-            # Chỉ được giữ lại cho mục đích tạo relationship trong sync_relationship_by_id
+            "name": self.name,
+            # Include relationship properties
             "candidate_id": self.candidate_id,
             "subject_id": self.subject_id,
             "exam_id": self.exam_id,
-            "exam_name": self.exam_name,
             "subject_name": self.subject_name,
-            "registration_status": self.registration_status,
-            "registration_date": self.registration_date,
-            "is_required": self.is_required,
-            "exam_date": self.exam_date
+            "exam_name": self.exam_name
         }
     
     @classmethod
@@ -255,15 +248,39 @@ class ScoreNode:
             ScoreNode instance
         """
         node = record['s']  # 's' là alias cho score trong cypher query
+        
+        # Debug log to see what properties are in the node
+        node_props = dict(node)
+        logging.info(f"Node properties from Neo4j: {node_props}")
+        
+        # Get score_id with fallback to exam_score_id or node id
+        score_id = node.get('score_id') or node.get('exam_score_id')
+        if not score_id:
+            # For debugging, log the node properties
+            logging.warning(f"Node missing score_id or exam_score_id: {node_props}")
+            # Use the Neo4j internal ID if available, or generate a temporary ID
+            score_id = node.get('id') or node.get('_id') or f"temp_score_{str(uuid.uuid4())[:8]}"
+        
+        # Ensure that both score_id and exam_score_id are set in the returned node
         score_node = ScoreNode(
-            score_id=node['score_id'],
+            score_id=score_id,
             score_value=node.get('score_value'),
             status=node.get('status'),
             graded_by=node.get('graded_by'),
             graded_at=node.get('graded_at'),
             score_history=node.get('score_history'),
-            name=node.get('name', f"Score {node['score_id']}")
+            name=node.get('name', f"Score {score_id}"),
+            # Add additional properties from the node if they exist
+            candidate_id=node.get('candidate_id'),
+            subject_id=node.get('subject_id'),
+            exam_id=node.get('exam_id'),
+            subject_name=node.get('subject_name'),
+            exam_name=node.get('exam_name')
         )
+        
+        # Set exam_score_id explicitly for backward compatibility
+        score_node.exam_score_id = score_id
+        
         return score_node
     
     def __repr__(self):

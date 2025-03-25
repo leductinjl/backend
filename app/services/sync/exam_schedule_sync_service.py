@@ -165,11 +165,18 @@ class ExamScheduleSyncService(BaseSyncService):
                 logger.error(f"Exam schedule {schedule_id} not found in SQL database")
                 return relationship_counts
             
-            # Extract IDs for relationships
-            exam_id = schedule.get("exam_id")
-            subject_id = schedule.get("subject_id")
-            room_id = schedule.get("room_id")
-            location_id = schedule.get("location_id")
+            # Extract IDs for relationships - handle both ORM objects and dictionaries
+            if isinstance(schedule, dict):
+                exam_id = schedule.get("exam_id")
+                subject_id = schedule.get("subject_id")
+                room_id = schedule.get("room_id")
+                location_id = schedule.get("location_id")
+            else:
+                # Using property accessors or direct attribute access for ORM objects
+                exam_id = getattr(schedule, "exam_id", None)
+                subject_id = getattr(schedule, "subject_id", None)
+                room_id = getattr(schedule, "room_id", None)
+                location_id = getattr(schedule, "location_id", None)
             
             # Sync FOR_EXAM relationship (schedule-exam)
             if exam_id:

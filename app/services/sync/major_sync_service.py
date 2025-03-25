@@ -178,29 +178,49 @@ class MajorSyncService(BaseSyncService):
         }
         
         try:
-            # Get major from SQL database with full details
-            major = await self.sql_repository.get_by_id(major_id)
-            if not major:
-                logger.error(f"Major {major_id} not found in SQL database")
-                return relationship_counts
+            # Import text for SQL queries
+            from sqlalchemy import text
             
-            # Sync OFFERED_BY relationships (major-school)
-            if hasattr(major, 'school_majors') and major.school_majors:
-                for school_major in major.school_majors:
-                    if hasattr(school_major, 'school_id') and school_major.school_id:
-                        success = await self.graph_repository.add_offered_by_relationship(
-                            major_id, 
-                            school_major.school_id,
-                            school_major.start_year
-                        )
-                        if success:
-                            relationship_counts["schools"] += 1
+            # Instead of trying to access ORM relationships directly, use SQL queries to get related data
+            # 1. Get school-major relationships from the database
+            query = text("""
+            SELECT sm.school_id, sm.start_year 
+            FROM school_major sm 
+            WHERE sm.major_id = :major_id
+            """)
+            result = await self.db_session.execute(query, {"major_id": major_id})
+            school_majors = result.fetchall()
             
-            # Sync HAS_MAJOR relationships (degree-major)
-            if hasattr(major, 'degrees') and major.degrees:
-                for degree in major.degrees:
-                    degree_id = degree.degree_id
-                    success = await self.graph_repository.add_has_major_relationship(degree_id, major_id)
+            # Sync school relationships
+            for school_major in school_majors:
+                school_id = school_major[0]
+                start_year = school_major[1]
+                if school_id:
+                    success = await self.graph_repository.add_offered_by_relationship(
+                        major_id, 
+                        school_id,
+                        start_year
+                    )
+                    if success:
+                        relationship_counts["schools"] += 1
+            
+            # 2. Get degree-major relationships from the database
+            query = text("""
+            SELECT d.degree_id
+            FROM degree d
+            WHERE d.major_id = :major_id
+            """)
+            result = await self.db_session.execute(query, {"major_id": major_id})
+            degrees = result.fetchall()
+            
+            # Sync degree relationships
+            for degree in degrees:
+                degree_id = degree[0]
+                if degree_id:
+                    success = await self.graph_repository.add_has_major_relationship(
+                        degree_id, 
+                        major_id
+                    )
                     if success:
                         relationship_counts["degrees"] += 1
             
@@ -224,10 +244,20 @@ class MajorSyncService(BaseSyncService):
         logger.info(f"Synchronizing relationships for all majors (limit={limit})")
         
         try:
-            # Get all majors from SQL database
-            majors, total_count = await self.sql_repository.get_all(limit=limit)
+            # Import text for SQL queries
+            from sqlalchemy import text
             
-            total_majors = len(majors)
+            # Get all majors' IDs from SQL database - using a more direct approach
+            # to avoid any lazy loading issues
+            sql_query = "SELECT major_id FROM major"
+            if limit:
+                sql_query += f" LIMIT {limit}"
+            
+            query = text(sql_query)
+            result = await self.db_session.execute(query)
+            major_ids = [row[0] for row in result.fetchall()]
+            
+            total_majors = len(major_ids)
             success_count = 0
             failure_count = 0
             
@@ -238,15 +268,8 @@ class MajorSyncService(BaseSyncService):
             }
             
             # For each major, sync relationships
-            for major in majors:
+            for major_id in major_ids:
                 try:
-                    # Get major_id safely - handle both ORM objects and dictionaries
-                    major_id = major.major_id if hasattr(major, 'major_id') else major.get("major_id")
-                    if not major_id:
-                        logger.error(f"Missing major_id in major object: {major}")
-                        failure_count += 1
-                        continue
-                    
                     # Verify major exists in Neo4j
                     major_node = await self.graph_repository.get_by_id(major_id)
                     if not major_node:
@@ -265,8 +288,6 @@ class MajorSyncService(BaseSyncService):
                     success_count += 1
                     
                 except Exception as e:
-                    # Get major_id safely for logging
-                    major_id = getattr(major, 'major_id', None) if hasattr(major, 'major_id') else major.get("major_id", "unknown")
                     logger.error(f"Error synchronizing relationships for major {major_id}: {e}")
                     failure_count += 1
             

@@ -237,10 +237,24 @@ class CandidateSyncService(BaseSyncService):
                 
             degrees, total_degrees = await self.degree_repository.get_by_candidate(candidate_id)
             for degree in degrees:
+                # Add relationship to degree
                 if await self.graph_repository.add_holds_degree_relationship(
                     candidate_id, degree.degree_id
                 ):
                     results["degrees"] += 1
+                
+                # If degree has a major, add relationship to that major too
+                if hasattr(degree, "major") and degree.major:
+                    major_rel_data = {
+                        "degree_id": degree.degree_id,
+                        "degree_name": degree.degree_name if hasattr(degree, "degree_name") else None,
+                        "school_id": degree.school_id if hasattr(degree, "school_id") else None,
+                        "school_name": degree.school_name if hasattr(degree, "school_name") else None
+                    }
+                    if await self.graph_repository.add_studies_major_relationship(
+                        candidate_id, degree.major.major_id, major_rel_data
+                    ):
+                        results["majors"] += 1
             
             # 3. Sync exam relationships
             exam_registrations = await self.candidate_exam_repository.get_by_candidate_id(candidate_id)
@@ -279,39 +293,50 @@ class CandidateSyncService(BaseSyncService):
                 
             schedules = await self.exam_schedule_repository.get_by_candidate_id(candidate_id)
             for schedule in schedules:
+                # Sử dụng các property đã được định nghĩa trong ExamSchedule
                 schedule_rel_data = {
-                    "exam_id": schedule["exam_id"],
-                    "exam_name": schedule["exam_name"],
-                    "subject_id": schedule["subject_id"],
-                    "subject_name": schedule["subject_name"],
-                    "room_id": schedule["room_id"],
-                    "room_name": schedule["room_name"]
+                    "exam_id": schedule.exam_id,
+                    "exam_name": schedule.exam_name,
+                    "subject_id": schedule.subject_id,
+                    "subject_name": schedule.subject_name,
+                    "room_id": schedule.room_id,
+                    "room_name": schedule.exam_room.room_name if schedule.exam_room else None,
+                    "registration_status": "REGISTERED",  # Giá trị mặc định
+                    "is_required": getattr(schedule.exam_subject, 'is_required', None) if schedule.exam_subject else None
                 }
                 if await self.graph_repository.add_has_exam_schedule_relationship(
-                    candidate_id, schedule["schedule_id"], schedule_rel_data
+                    candidate_id, schedule.exam_schedule_id, schedule_rel_data
                 ):
                     results["schedules"] += 1
             
+            # Get all candidate exams for this candidate (used by multiple relationship types)
+            candidate_exams = await self.candidate_exam_repository.get_by_candidate_id(candidate_id)
+            if not candidate_exams:
+                logger.warning(f"No exam registrations found for candidate ID {candidate_id}")
+                candidate_exams = []
+
             # 6. Sync certificates
             if not self.certificate_repository:
                 from app.repositories.certificate_repository import CertificateRepository
                 self.certificate_repository = CertificateRepository(self.db_session)
                 
-            certificates = await self.certificate_repository.get_by_candidate_id(candidate_id)
-            for certificate in certificates:
-                if await self.graph_repository.add_earns_certificate_relationship(
-                    candidate_id, certificate["certificate_id"]
-                ):
-                    results["certificates"] += 1
+            # Get all certificates for each candidate exam
+            for exam in candidate_exams:
+                certificates = await self.certificate_repository.get_by_candidate_exam_id(exam["candidate_exam_id"])
+                for certificate in certificates:
+                    if await self.graph_repository.add_earns_certificate_relationship(
+                        candidate_id, certificate["certificate_id"]
+                    ):
+                        results["certificates"] += 1
             
             # 7. Sync credentials
             if not self.credential_repository:
                 self.credential_repository = CandidateCredentialRepository(self.db_session)
                 
-            credentials = await self.credential_repository.get_by_candidate_id(candidate_id)
+            credentials, _ = await self.credential_repository.get_by_candidate(candidate_id)
             for credential in credentials:
                 if await self.graph_repository.add_provides_credential_relationship(
-                    candidate_id, credential["credential_id"]
+                    candidate_id, credential.credential_id
                 ):
                     results["credentials"] += 1
             
@@ -320,36 +345,42 @@ class CandidateSyncService(BaseSyncService):
                 from app.repositories.award_repository import AwardRepository
                 self.award_repository = AwardRepository(self.db_session)
                 
-            awards = await self.award_repository.get_by_candidate_id(candidate_id)
-            for award in awards:
-                if await self.graph_repository.add_earns_award_relationship(
-                    candidate_id, award["award_id"]
-                ):
-                    results["awards"] += 1
+            # Process awards for each candidate exam
+            for exam in candidate_exams:
+                awards, _ = await self.award_repository.get_by_candidate_exam(exam["candidate_exam_id"])
+                for award in awards:
+                    if await self.graph_repository.add_earns_award_relationship(
+                        candidate_id, award.award_id
+                    ):
+                        results["awards"] += 1
             
             # 9. Sync achievements
             if not self.achievement_repository:
                 from app.repositories.achievement_repository import AchievementRepository
                 self.achievement_repository = AchievementRepository(self.db_session)
                 
-            achievements = await self.achievement_repository.get_by_candidate_id(candidate_id)
-            for achievement in achievements:
-                if await self.graph_repository.add_achieves_relationship(
-                    candidate_id, achievement["achievement_id"]
-                ):
-                    results["achievements"] += 1
+            # Process achievements for each candidate exam
+            for exam in candidate_exams:
+                achievements, _ = await self.achievement_repository.get_by_candidate_exam(exam["candidate_exam_id"])
+                for achievement in achievements:
+                    if await self.graph_repository.add_achieves_relationship(
+                        candidate_id, achievement.achievement_id
+                    ):
+                        results["achievements"] += 1
             
             # 10. Sync recognitions
             if not self.recognition_repository:
                 from app.repositories.recognition_repository import RecognitionRepository
                 self.recognition_repository = RecognitionRepository(self.db_session)
                 
-            recognitions = await self.recognition_repository.get_by_candidate_id(candidate_id)
-            for recognition in recognitions:
-                if await self.graph_repository.add_receives_recognition_relationship(
-                    candidate_id, recognition["recognition_id"]
-                ):
-                    results["recognitions"] += 1
+            # Process recognitions for each candidate exam
+            for exam in candidate_exams:
+                recognitions, _ = await self.recognition_repository.get_by_candidate_exam(exam["candidate_exam_id"])
+                for recognition in recognitions:
+                    if await self.graph_repository.add_receives_recognition_relationship(
+                        candidate_id, recognition.recognition_id
+                    ):
+                        results["recognitions"] += 1
                     
             logger.info(f"Synchronized all relationships for candidate {candidate_id}: {results}")
             return results

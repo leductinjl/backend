@@ -173,16 +173,6 @@ class ExamLocationSyncService(BaseSyncService):
         """
         logger.info(f"Synchronizing relationships for exam location {location_id}")
         
-        # Check if exam location node exists before syncing relationships
-        location_node = await self.graph_repository.get_by_id(location_id)
-        if not location_node:
-            logger.warning(f"Exam location node {location_id} not found in Neo4j, skipping relationship sync")
-            return {
-                "error": "Exam location node not found in Neo4j",
-                "exams": 0,
-                "rooms": 0
-            }
-        
         relationship_counts = {
             "exams": 0,
             "rooms": 0
@@ -194,24 +184,68 @@ class ExamLocationSyncService(BaseSyncService):
             if not location:
                 logger.error(f"Exam location {location_id} not found in SQL database")
                 return relationship_counts
+                
+            # Add detailed logging for debugging
+            logger.info(f"Location data keys: {list(location.keys()) if location else []}")
             
-            # Sync HAS_ROOM relationships (location-room)
-            if "rooms" in location:
-                for room in location["rooms"]:
-                    room_id = room.get("room_id")
-                    if room_id:
-                        success = await self.graph_repository.add_has_room_relationship(location_id, room_id)
-                        if success:
-                            relationship_counts["rooms"] += 1
+            # Verify location node in Neo4j
+            # If it doesn't exist, create it first
+            location_node = await self.graph_repository.get_by_id(location_id)
+            if not location_node:
+                logger.warning(f"Exam location node {location_id} not found in Neo4j, creating it first")
+                await self.sync_node_by_id(location_id)
             
             # Sync HOSTS_EXAM relationships (location-exam)
-            if "exams" in location:
-                for exam in location["exams"]:
-                    exam_id = exam.get("exam_id")
+            exams = location.get("exams", [])
+            if exams:
+                logger.info(f"Found {len(exams)} exams for location {location_id}")
+                for exam in exams:
+                    # Extract exam_id safely
+                    exam_id = None
+                    if isinstance(exam, dict):
+                        exam_id = exam.get("exam_id")
+                    else:
+                        # Handle if exam is a SQLAlchemy model
+                        exam_id = getattr(exam, "exam_id", None)
+                        
                     if exam_id:
-                        success = await self.graph_repository.add_hosts_exam_relationship(location_id, exam_id)
-                        if success:
-                            relationship_counts["exams"] += 1
+                        try:
+                            success = await self.graph_repository.add_hosts_exam_relationship(location_id, exam_id)
+                            if success:
+                                relationship_counts["exams"] += 1
+                                logger.info(f"Added HOSTS_EXAM relationship between {location_id} and {exam_id}")
+                        except Exception as exam_e:
+                            logger.error(f"Error adding HOSTS_EXAM relationship: {exam_e}")
+                    else:
+                        logger.warning(f"Could not extract exam_id from exam data: {exam}")
+            else:
+                logger.warning(f"No exams found for location {location_id}")
+            
+            # Sync HAS_ROOM relationships (location-room)
+            rooms = location.get("exam_rooms", []) or location.get("rooms", [])
+            if rooms:
+                logger.info(f"Found {len(rooms)} rooms for location {location_id}")
+                for room in rooms:
+                    # Extract room_id safely
+                    room_id = None
+                    if isinstance(room, dict):
+                        room_id = room.get("room_id")
+                    else:
+                        # Handle if room is a SQLAlchemy model
+                        room_id = getattr(room, "room_id", None)
+                        
+                    if room_id:
+                        try:
+                            success = await self.graph_repository.add_has_room_relationship(location_id, room_id)
+                            if success:
+                                relationship_counts["rooms"] += 1
+                                logger.info(f"Added HAS_ROOM relationship between {location_id} and {room_id}")
+                        except Exception as room_e:
+                            logger.error(f"Error adding HAS_ROOM relationship: {room_e}")
+                    else:
+                        logger.warning(f"Could not extract room_id from room data: {room}")
+            else:
+                logger.info(f"No rooms found for location {location_id}")
             
             logger.info(f"Exam location relationship synchronization completed for {location_id}: {relationship_counts}")
             return relationship_counts
@@ -246,22 +280,57 @@ class ExamLocationSyncService(BaseSyncService):
                 "rooms": 0
             }
             
+            # Debug: print first location to understand structure
+            if locations and len(locations) > 0:
+                first_location = locations[0]
+                logger.info(f"DEBUG: First location type: {type(first_location)}")
+                logger.info(f"DEBUG: First location attributes: {dir(first_location) if hasattr(first_location, '__dict__') else 'No attributes'}")
+                logger.info(f"DEBUG: First location dictionary keys: {list(first_location.keys()) if isinstance(first_location, dict) else 'Not a dictionary'}")
+                
+                # Attempt to safely extract and display the location_id
+                if hasattr(first_location, 'location_id'):
+                    logger.info(f"DEBUG: First location has location_id attribute: {first_location.location_id}")
+                elif isinstance(first_location, dict) and 'location_id' in first_location:
+                    logger.info(f"DEBUG: First location has location_id key: {first_location['location_id']}")
+                else:
+                    logger.info(f"DEBUG: First location object dump: {first_location}")
+            
             # For each exam location, sync relationships
             for location in locations:
                 try:
+                    # Debug: Print current location before accessing attributes
+                    logger.info(f"Processing location: {location}")
+                    
                     # Get location_id safely - handle both ORM objects and dictionaries
-                    location_id = location.location_id if hasattr(location, 'location_id') else location.get("location_id")
+                    location_id = None
+                    
+                    # Try multiple approaches to get location_id
+                    if hasattr(location, 'location_id'):
+                        location_id = location.location_id
+                        logger.info(f"Found location_id as attribute: {location_id}")
+                    elif isinstance(location, dict):
+                        if 'location_id' in location:
+                            location_id = location['location_id']
+                            logger.info(f"Found location_id as dictionary key: {location_id}")
+                        else:
+                            logger.info(f"Dictionary keys available: {list(location.keys())}")
+                    else:
+                        logger.info(f"Location object is neither ORM nor dictionary: {type(location)}")
+                    
                     if not location_id:
                         logger.error(f"Missing location_id in location object: {location}")
                         failure_count += 1
                         continue
                     
-                    # Verify exam location exists in Neo4j
+                    # First ensure node exists in Neo4j - if not, create it
                     location_node = await self.graph_repository.get_by_id(location_id)
                     if not location_node:
-                        logger.warning(f"Exam location {location_id} not found in Neo4j, skipping relationship sync")
-                        failure_count += 1
-                        continue
+                        logger.info(f"Creating exam location node in Neo4j for {location_id}")
+                        node_created = await self.sync_node_by_id(location_id)
+                        if not node_created:
+                            logger.error(f"Failed to create exam location node for {location_id}, skipping relationship sync")
+                            failure_count += 1
+                            continue
                     
                     # Sync relationships for this exam location
                     results = await self.sync_relationship_by_id(location_id)
@@ -275,8 +344,14 @@ class ExamLocationSyncService(BaseSyncService):
                     
                 except Exception as e:
                     # Get location_id safely for logging
-                    location_id = getattr(location, 'location_id', None) if hasattr(location, 'location_id') else location.get("location_id", "unknown")
+                    location_id = "unknown"
+                    if hasattr(location, 'location_id'):
+                        location_id = location.location_id
+                    elif isinstance(location, dict) and 'location_id' in location:
+                        location_id = location['location_id']
+                        
                     logger.error(f"Error synchronizing relationships for exam location {location_id}: {e}")
+                    logger.exception("Full exception details")
                     failure_count += 1
             
             # Prepare final result

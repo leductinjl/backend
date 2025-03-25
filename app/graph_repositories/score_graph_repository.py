@@ -85,7 +85,7 @@ class ScoreGraphRepository:
         Get a score by ID.
         
         Args:
-            score_id: The ID of the score to retrieve
+            score_id: The ID of the score to retrieve (exam_score_id in database)
             
         Returns:
             ScoreNode or None if not found
@@ -100,10 +100,12 @@ class ScoreGraphRepository:
             result = await self.neo4j.execute_query(query, params)
             if result and len(result) > 0:
                 return ScoreNode.from_record({"s": result[0][0]})
-            logger.info(f"No score found with ID {score_id}")
+            
+            # If not found, log and return None
+            logger.warning(f"No score found with ID {score_id}")
             return None
         except Exception as e:
-            logger.error(f"Error retrieving score by ID {score_id}: {e}")
+            logger.error(f"Error retrieving score by ID {score_id}: {e}", exc_info=True)
             return None
     
     async def delete(self, score_id):
@@ -413,4 +415,39 @@ class ScoreGraphRepository:
             return success
         except Exception as e:
             logger.error(f"Error creating FOR_SUBJECT relationship: {e}")
+            return False
+    
+    async def add_has_review_relationship(self, score_id: str, review_id: str) -> bool:
+        """
+        Thêm mối quan hệ HAS_REVIEW giữa Score và ScoreReview.
+        
+        Args:
+            score_id: ID của điểm
+            review_id: ID của đơn phúc khảo
+            
+        Returns:
+            bool: True nếu thành công, False nếu thất bại
+        """
+        # Define the HAS_REVIEW relationship
+        HAS_REVIEW_REL = "HAS_REVIEW"
+        
+        query = f"""
+        MATCH (s:Score {{score_id: $score_id}})
+        MATCH (r:ScoreReview {{review_id: $review_id}})
+        MERGE (s)-[rel:{HAS_REVIEW_REL}]->(r)
+        RETURN rel
+        """
+        params = {
+            "score_id": score_id,
+            "review_id": review_id
+        }
+        
+        try:
+            result = await self.neo4j.execute_query(query, params)
+            success = result and len(result) > 0
+            if success:
+                logger.info(f"Created HAS_REVIEW relationship between Score {score_id} and ScoreReview {review_id}")
+            return success
+        except Exception as e:
+            logger.error(f"Error creating HAS_REVIEW relationship: {e}")
             return False 

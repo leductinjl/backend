@@ -137,14 +137,12 @@ class CertificateSyncService(BaseSyncService):
             return {
                 "error": "Certificate node not found in Neo4j",
                 "candidate": 0,
-                "exam": 0,
-                "issuing_organization": 0
+                "exam": 0
             }
         
         relationship_counts = {
             "candidate": 0,
-            "exam": 0,
-            "issuing_organization": 0
+            "exam": 0
         }
         
         try:
@@ -154,23 +152,69 @@ class CertificateSyncService(BaseSyncService):
                 logger.error(f"Certificate {certificate_id} not found in SQL database")
                 return relationship_counts
             
-            # Extract candidate_id if available
+            # Log complete certificate data for debugging
+            logger.info(f"Certificate data: {certificate}")
+            
+            # Extract candidate_id from the certificate data
             candidate_id = certificate.get("candidate_id")
+            if not candidate_id:
+                # Try to fetch through candidate_exam
+                candidate_exam_id = certificate.get("candidate_exam_id")
+                if candidate_exam_id:
+                    logger.info(f"Trying to get candidate_id through candidate_exam_id: {candidate_exam_id}")
+                    # Create and use CandidateExamRepository to get the data
+                    from app.repositories.candidate_exam_repository import CandidateExamRepository
+                    candidate_exam_repo = CandidateExamRepository(self.session)
+                    candidate_exam_data = await candidate_exam_repo.get_by_id(candidate_exam_id)
+                    if candidate_exam_data:
+                        candidate_id = candidate_exam_data.get("candidate_id")
+                        logger.info(f"Found candidate_id {candidate_id} through candidate_exam")
             
-            # Sync ISSUED_TO relationship (certificate-candidate)
+            # Log more detailed information about the certificate data structure for debugging
+            logger.info(f"Certificate data keys: {list(certificate.keys() if certificate else [])}")
+            logger.info(f"Retrieved candidate_id: {candidate_id}")
+            
+            # Sync EARNS_CERTIFICATE relationship (candidate-certificate)
             if candidate_id:
-                success = await self.graph_repository.add_issued_to_relationship(certificate_id, candidate_id)
-                if success:
-                    relationship_counts["candidate"] += 1
+                try:
+                    success = await self.graph_repository.add_issued_to_relationship(certificate_id, candidate_id)
+                    if success:
+                        relationship_counts["candidate"] += 1
+                        logger.info(f"Successfully added EARNS_CERTIFICATE relationship between {candidate_id} and {certificate_id}")
+                except Exception as e:
+                    logger.error(f"Error creating EARNS_CERTIFICATE relationship: {e}")
+            else:
+                logger.warning(f"No candidate_id found for certificate {certificate_id}")
             
-            # Extract exam_id if available
+            # Extract exam_id from the certificate data
             exam_id = certificate.get("exam_id")
+            if not exam_id:
+                # Try to fetch through candidate_exam
+                candidate_exam_id = certificate.get("candidate_exam_id")
+                if candidate_exam_id:
+                    logger.info(f"Trying to get exam_id through candidate_exam_id: {candidate_exam_id}")
+                    # Use the same candidate_exam_repo if not already created
+                    if not 'candidate_exam_repo' in locals():
+                        from app.repositories.candidate_exam_repository import CandidateExamRepository
+                        candidate_exam_repo = CandidateExamRepository(self.session)
+                    candidate_exam_data = await candidate_exam_repo.get_by_id(candidate_exam_id)
+                    if candidate_exam_data:
+                        exam_id = candidate_exam_data.get("exam_id")
+                        logger.info(f"Found exam_id {exam_id} through candidate_exam")
             
-            # Sync FOR_EXAM relationship (certificate-exam)
+            logger.info(f"Retrieved exam_id: {exam_id}")
+            
+            # Sync CERTIFICATE_FOR_EXAM relationship (certificate-exam)
             if exam_id:
-                success = await self.graph_repository.add_for_exam_relationship(certificate_id, exam_id)
-                if success:
-                    relationship_counts["exam"] += 1
+                try:
+                    success = await self.graph_repository.add_for_exam_relationship(certificate_id, exam_id)
+                    if success:
+                        relationship_counts["exam"] += 1
+                        logger.info(f"Successfully added CERTIFICATE_FOR_EXAM relationship between {certificate_id} and {exam_id}")
+                except Exception as e:
+                    logger.error(f"Error creating CERTIFICATE_FOR_EXAM relationship: {e}")
+            else:
+                logger.warning(f"No exam_id found for certificate {certificate_id}")
             
             logger.info(f"Certificate relationship synchronization completed for {certificate_id}: {relationship_counts}")
             return relationship_counts
@@ -202,8 +246,7 @@ class CertificateSyncService(BaseSyncService):
             # Aggregated counts for all relationship types
             relationship_counts = {
                 "candidate": 0,
-                "exam": 0,
-                "issuing_organization": 0
+                "exam": 0
             }
             
             # For each certificate, sync relationships

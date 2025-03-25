@@ -109,11 +109,25 @@ class ManagementUnitGraphRepository:
         
         try:
             result = await self.neo4j.execute_query(query, {"unit_id": unit_id})
-            if result and len(result) > 0:
-                return ManagementUnitNode.from_record({"m": result[0][0]})
+            if result and len(result) > 0 and result[0][0] is not None:
+                node_data = dict(result[0][0])
+                # Create ManagementUnitNode directly from the node properties
+                return ManagementUnitNode(
+                    unit_id=node_data.get('unit_id'),
+                    unit_name=node_data.get('unit_name', f"Unit {unit_id}"),
+                    unit_code=node_data.get('unit_code'),
+                    unit_type=node_data.get('unit_type'),
+                    address=node_data.get('address'),
+                    contact_info=node_data.get('contact_info'),
+                    parent_id=node_data.get('parent_id'),
+                    level=node_data.get('level'),
+                    region=node_data.get('region'),
+                    status=node_data.get('status'),
+                    additional_info=node_data.get('additional_info')
+                )
             return None
         except Neo4jError as e:
-            logger.error(f"Error retrieving ManagementUnit by ID: {e}")
+            logger.error(f"Error retrieving ManagementUnit by ID {unit_id}: {e}")
             return None
         except Exception as e:
             logger.error(f"Unexpected error in get_by_id: {e}")
@@ -404,3 +418,18 @@ class ManagementUnitGraphRepository:
         except Exception as e:
             logger.error(f"Unexpected error in get_organized_exams: {e}")
             return []
+    
+    async def add_organizes_relationship(self, unit_id: str, exam_id: str) -> bool:
+        """
+        Add an organizing relationship between a management unit and an exam.
+        
+        Args:
+            unit_id: ID of the management unit
+            exam_id: ID of the exam
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        # This method just calls the add_manages_exam_relationship method
+        # with a more descriptive name that matches what's used in the sync service
+        return await self.add_manages_exam_relationship(unit_id, exam_id)
