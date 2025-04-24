@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, func
+from sqlalchemy import select, update, delete, func, or_
 from sqlalchemy.orm import joinedload
 from app.domain.models.candidate import Candidate
 from app.domain.models.personal_info import PersonalInfo
@@ -135,13 +135,13 @@ class CandidateRepository:
             personal_info = candidate_data.pop('personal_info', None)
             
             # Update candidate
-                query = update(Candidate).where(Candidate.candidate_id == candidate_id).values(**candidate_data)
-                await self.db_session.execute(query)
+            query = update(Candidate).where(Candidate.candidate_id == candidate_id).values(**candidate_data)
+            await self.db_session.execute(query)
             
             if personal_info:
-            # Update personal_info if provided
+                # Update personal_info if provided
                 personal_info_query = update(PersonalInfo).where(
-                        PersonalInfo.candidate_id == candidate_id
+                    PersonalInfo.candidate_id == candidate_id
                 ).values(**personal_info)
                 await self.db_session.execute(personal_info_query)
             
@@ -149,6 +149,7 @@ class CandidateRepository:
             
             # Get updated candidate with personal info
             return await self.get_by_id_with_personal_info(candidate_id)
+            
         except Exception as e:
             await self.db_session.rollback()
             self.logger.error(f"Error updating candidate {candidate_id}: {e}")
@@ -221,16 +222,51 @@ class CandidateRepository:
             raise
     
     async def search(self, search_term: str, skip: int = 0, limit: int = 100) -> List[Candidate]:
-        """Search candidates by name"""
+        """
+        Search candidates by name, candidate_id, or id_number
+        
+        Args:
+            search_term: Term to search for
+            skip: Number of records to skip
+            limit: Maximum number of records to return
+            
+        Returns:
+            List of candidates matching the search criteria
+        """
         try:
-            query = select(Candidate).where(
-                Candidate.full_name.ilike(f"%{search_term}%")
-            ).offset(skip).limit(limit)
+            # Build base query with personal info joined
+            query = select(Candidate).options(
+                joinedload(Candidate.personal_info)
+            )
+            
+            # Add search conditions
+            search_conditions = [
+                Candidate.full_name.ilike(f"%{search_term}%"),
+                Candidate.candidate_id.ilike(f"%{search_term}%")
+            ]
+            
+            # Add personal info search if it exists
+            if hasattr(Candidate, 'personal_info'):
+                search_conditions.append(
+                    PersonalInfo.id_number.ilike(f"%{search_term}%")
+                )
+            
+            # Combine conditions with OR
+            query = query.where(or_(*search_conditions))
+            
+            # Add pagination
+            query = query.offset(skip).limit(limit)
+            
+            # Execute query
             result = await self.db_session.execute(query)
-            return list(result.scalars().all())
+            candidates = list(result.scalars().unique().all())
+            
+            self.logger.info(f"Found {len(candidates)} candidates matching search term '{search_term}'")
+            return candidates
+            
         except Exception as e:
             self.logger.error(f"Error searching candidates with term '{search_term}': {e}")
-            raise 
+            raise
     
     async def get_all_with_personal_info(self, skip: int = 0, limit: int = 100) -> List[Candidate]:
         """
