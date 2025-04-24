@@ -8,13 +8,14 @@ require admin authentication.
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Path, UploadFile, File
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timedelta
 import pytz
 import logging
+import os
+import tempfile
 
 from app.infrastructure.database.connection import get_db
 from app.infrastructure.ontology.neo4j_connection import get_neo4j
@@ -24,6 +25,7 @@ from app.graph_repositories.candidate_graph_repository import CandidateGraphRepo
 from app.services.candidate_service import CandidateService
 from app.services.id_service import generate_model_id
 from app.services.sync.main_sync_service import MainSyncService, EntityType
+from app.services.import_excel import import_excel_data
 from app.api.dto.candidate import (
     CandidateCreate, 
     CandidateUpdate, 
@@ -32,15 +34,10 @@ from app.api.dto.candidate import (
 )
 from app.api.dto.admin import AdminRegisterRequest, AdminLoginResponse
 from app.api.dto.dashboard import DashboardStats
-from app.api.dto.exam import ExamCreate, ExamUpdate
-from app.api.dto.school import SchoolCreate, SchoolUpdate
-from app.api.dto.excel import ExcelImportRequest
 # Import auth functions
 from app.api.controllers.admin_auth import admin_login, admin_register
 from app.domain.models.invitation import Invitation
 from app.services.dashboard_service import DashboardService
-from app.services.excel_import_service import ExcelImportService
-from app.core.auth import get_current_admin
 
 logger = logging.getLogger(__name__)
 
@@ -568,29 +565,58 @@ async def synchronize_entity_relationships(
             "results": {}
         }
 
-@router.post("/import-excel")
+@router.post("/import/excel", summary="Import data from Excel file")
 async def import_excel(
     file: UploadFile = File(...),
-    current_admin = Depends(get_current_admin)
+    admin: dict = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
 ):
     """
-    Import data from Excel file into database.
+    Import candidate and score data from Excel file.
+    
+    This endpoint allows admins to import candidate information and scores
+    from an Excel file with 2 sheets:
+    - Sheet 1: Scores (Mã SV, Mã học phần, Điểm, etc.)
+    - Sheet 2: Student info (MSSV, Họ tên, Địa chỉ, etc.)
+    
+    Args:
+        file: The Excel file to import
+        admin: The authenticated admin user (from dependency)
+        db: Database session
+        
+    Returns:
+        dict: Import result with success/failure message
     """
     try:
-        if not file.filename.endswith(('.xlsx', '.xls')):
-            raise HTTPException(status_code=400, detail="Only Excel files are allowed")
+        # Create temporary file to store uploaded Excel
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as temp_file:
+            content = await file.read()
+            temp_file.write(content)
+            temp_file_path = temp_file.name
         
-        excel_service = ExcelImportService()
-        result = await excel_service.import_excel(file)
-        
-        return JSONResponse(
-            content={
-                "message": "Import successful",
-                "details": result
+        try:
+            # Import data using the import service
+            success, message = await import_excel_data(db, temp_file_path)
+            
+            if not success:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=message
+                )
+            
+            return {
+                "status": "success",
+                "message": message
             }
-        )
+            
+        finally:
+            # Clean up temporary file
+            os.unlink(temp_file_path)
+            
     except Exception as e:
-        logger.error(f"Error importing Excel file: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error importing Excel file: {str(e)}"
+        )
 
 # Additional admin routes for managing exams, schools, etc. would go here

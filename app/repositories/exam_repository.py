@@ -238,3 +238,8 @@ class ExamRepository:
         
         logger.info(f"Deleted exam with ID: {exam_id}")
         return True 
+
+    async def count(self) -> int:
+        query = select(func.count()).select_from(Exam)
+        result = await self.db.execute(query)
+        return result.scalar_one() 

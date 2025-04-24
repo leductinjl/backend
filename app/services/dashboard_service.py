@@ -22,17 +22,14 @@ class DashboardService:
         - Total number of schools
         """
         try:
-            # Get total candidates
-            candidates = await self.candidate_repo.get_all()
-            candidate_count = len(candidates)
+            # Get total candidates using COUNT
+            candidate_count = await self.candidate_repo.count()
 
-            # Get total exams
-            exams = await self.exam_repo.get_all()
-            exam_count = len(exams)
+            # Get total exams using COUNT
+            exam_count = await self.exam_repo.count()
 
-            # Get total schools
-            schools = await self.school_repo.get_all()
-            school_count = len(schools)
+            # Get total schools using COUNT
+            school_count = await self.school_repo.count()
 
             self.logger.info(f"Retrieved dashboard stats: {candidate_count} candidates, {exam_count} exams, {school_count} schools")
             

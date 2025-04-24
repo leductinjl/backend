@@ -1,11 +1,12 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, func
 from sqlalchemy.orm import joinedload
 from app.domain.models.candidate import Candidate
 from app.domain.models.personal_info import PersonalInfo
 from typing import List, Optional, Dict, Any
 import logging
 from app.services.id_service import generate_model_id
+from sqlalchemy.future import select
 
 class CandidateRepository:
     """
@@ -134,28 +135,25 @@ class CandidateRepository:
             personal_info = candidate_data.pop('personal_info', None)
             
             # Update candidate
-            query = update(Candidate).where(Candidate.candidate_id == candidate_id).values(**candidate_data)
-            result = await self.db_session.execute(query)
+                query = update(Candidate).where(Candidate.candidate_id == candidate_id).values(**candidate_data)
+                await self.db_session.execute(query)
             
-            if result.rowcount == 0:
-                return None
-                
-            # Update personal_info if provided
             if personal_info:
+            # Update personal_info if provided
                 personal_info_query = update(PersonalInfo).where(
-                    PersonalInfo.candidate_id == candidate_id
+                        PersonalInfo.candidate_id == candidate_id
                 ).values(**personal_info)
                 await self.db_session.execute(personal_info_query)
             
             await self.db_session.commit()
             
-            # Get updated candidate
+            # Get updated candidate with personal info
             return await self.get_by_id_with_personal_info(candidate_id)
         except Exception as e:
             await self.db_session.rollback()
             self.logger.error(f"Error updating candidate {candidate_id}: {e}")
             raise
-    
+            
     async def update_personal_info(self, candidate_id: str, personal_info_data: Dict[str, Any]) -> Optional[Candidate]:
         """
         Update only the personal information of a candidate
@@ -232,7 +230,7 @@ class CandidateRepository:
             return list(result.scalars().all())
         except Exception as e:
             self.logger.error(f"Error searching candidates with term '{search_term}': {e}")
-            raise
+            raise 
     
     async def get_all_with_personal_info(self, skip: int = 0, limit: int = 100) -> List[Candidate]:
         """
@@ -258,4 +256,9 @@ class CandidateRepository:
             
         except Exception as e:
             self.logger.error(f"Error getting all candidates with personal info: {e}")
-            raise 
+            raise
+    
+    async def count(self) -> int:
+        query = select(func.count()).select_from(Candidate)
+        result = await self.db_session.execute(query)
+        return result.scalar_one() 

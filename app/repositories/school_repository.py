@@ -163,3 +163,8 @@ class SchoolRepository:
         
         logger.info(f"Deleted school with ID: {school_id}")
         return True 
+
+    async def count(self) -> int:
+        query = select(func.count()).select_from(School)
+        result = await self.db.execute(query)
+        return result.scalar_one() 

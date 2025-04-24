@@ -192,7 +192,7 @@ async def admin_register(
     # Create access token
     access_token = create_jwt_token(
         data=token_data,
-        expires_delta=timedelta(hours=1)  # Token valid for 1 hour
+        expires_delta=timedelta(hours=24)  # Token valid for 24 hours
     )
     
     # Return login response
@@ -282,7 +282,7 @@ async def admin_login(
         # Create access token
         access_token = create_jwt_token(
             data=token_data,
-            expires_delta=timedelta(hours=1)  # Token valid for 1 hour
+            expires_delta=timedelta(hours=24)  # Token valid for 24 hours
         )
         
         # Log the login attempt
