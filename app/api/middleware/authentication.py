@@ -97,6 +97,10 @@ class AdminAuthenticationMiddleware(BaseHTTPMiddleware):
         if not path.startswith(self.admin_path_prefix):
             # Not an admin path, allow without authentication
             return await call_next(request)
+            
+        # Skip authentication for OPTIONS requests (CORS preflight)
+        if request.method == "OPTIONS":
+            return await call_next(request)
         
         # Admin path - require authentication
         auth_header = request.headers.get("Authorization")

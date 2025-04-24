@@ -29,16 +29,16 @@ class CandidateService:
             limit: Maximum number of records to return
             
         Returns:
-            List of serialized candidates
+            List of serialized candidates with personal information
         """
         try:
-            candidates = await self.candidate_repo.get_all(skip, limit)
-            return [self._serialize_candidate(candidate) for candidate in candidates]
+            candidates = await self.candidate_repo.get_all_with_personal_info(skip, limit)
+            return [self._serialize_candidate_with_details(candidate) for candidate in candidates]
         except Exception as e:
             self.logger.error(f"Error getting all candidates: {e}")
             raise
     
-    async def get_candidate_by_id(self, candidate_id: str) -> Optional[Dict[str, Any]]:
+    async def get_candidate(self, candidate_id: str) -> Optional[Dict[str, Any]]:
         """
         Get candidate information by ID
         
@@ -52,7 +52,21 @@ class CandidateService:
             candidate = await self.candidate_repo.get_by_id_with_personal_info(candidate_id)
             if not candidate:
                 return None
-            return self._serialize_candidate_with_details(candidate)
+            
+            # Get education history
+            education_history = await self.get_candidate_education_history(candidate_id)
+            
+            # Get exam history
+            exam_history = await self.get_candidate_exam_history(candidate_id)
+            
+            # Serialize candidate with all details
+            result = self._serialize_candidate_with_details(candidate)
+            result.update({
+                'education_histories': education_history,
+                'candidate_exams': exam_history
+            })
+            
+            return result
         except Exception as e:
             self.logger.error(f"Error getting candidate {candidate_id}: {e}")
             raise

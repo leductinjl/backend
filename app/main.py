@@ -35,6 +35,9 @@ async def startup_db_client():
 # Set up all routes
 setup_routes(app)
 
+# Export the app instance
+__all__ = ["app"]
+
 if __name__ == "__main__":
     # Run the application directly when this file is executed
     uvicorn.run("app.main:app", host=settings.HOST, port=settings.PORT, reload=True) 

@@ -6,8 +6,9 @@ exams, schools, and other administrative tasks. All endpoints in this router
 require admin authentication.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Path
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Path, UploadFile, File
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
 import uuid
@@ -30,9 +31,16 @@ from app.api.dto.candidate import (
     CandidateDetailResponse
 )
 from app.api.dto.admin import AdminRegisterRequest, AdminLoginResponse
+from app.api.dto.dashboard import DashboardStats
+from app.api.dto.exam import ExamCreate, ExamUpdate
+from app.api.dto.school import SchoolCreate, SchoolUpdate
+from app.api.dto.excel import ExcelImportRequest
 # Import auth functions
 from app.api.controllers.admin_auth import admin_login, admin_register
 from app.domain.models.invitation import Invitation
+from app.services.dashboard_service import DashboardService
+from app.services.excel_import_service import ExcelImportService
+from app.core.auth import get_current_admin
 
 logger = logging.getLogger(__name__)
 
@@ -107,8 +115,7 @@ async def get_candidate_service(
 ):
     """Dependency to inject CandidateService into API endpoints"""
     candidate_repo = CandidateRepository(db)
-    candidate_graph_repo = CandidateGraphRepository(neo4j)
-    return CandidateService(candidate_repo, candidate_graph_repo)
+    return CandidateService(candidate_repo)
 
 async def get_sync_service(
     entity_type: EntityType,
@@ -128,35 +135,27 @@ async def get_sync_service(
     """
     return MainSyncService(session=db, driver=neo4j._driver)
 
-@router.get("/dashboard", summary="Admin Dashboard")
-async def admin_dashboard(admin: dict = Depends(get_current_admin)):
+@router.get("/dashboard", response_model=DashboardStats)
+async def get_dashboard_stats(
+    db: AsyncSession = Depends(get_db)
+):
     """
-    Admin dashboard overview.
-    
-    Returns summary information for the admin dashboard including counts
-    of candidates, exams, and schools in the system.
-    
-    Args:
-        admin: The authenticated admin user (from dependency)
-        
-    Returns:
-        dict: Dashboard summary data
+    Get dashboard statistics
     """
-    # Here you would typically gather dashboard stats
-    return {
-        "admin": admin["email"],
-        "dashboard": {
-            "candidate_count": 0,  # Replace with actual count
-            "exam_count": 0,       # Replace with actual count
-            "school_count": 0      # Replace with actual count
-        }
-    }
+    try:
+        dashboard_service = DashboardService(db)
+        return await dashboard_service.get_dashboard_stats()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
 
 @router.post("/candidates", response_model=CandidateResponse, status_code=status.HTTP_201_CREATED, summary="Create Candidate")
 async def create_candidate(
     candidate: CandidateCreate,
     admin: dict = Depends(get_current_admin),
-    service: CandidateService = Depends(get_candidate_service)
+    candidate_service: CandidateService = Depends(get_candidate_service)
 ):
     """
     Create a new candidate in the system.
@@ -167,19 +166,73 @@ async def create_candidate(
     Args:
         candidate: The candidate data to create
         admin: The authenticated admin user (from dependency)
-        service: The CandidateService instance (from dependency)
+        candidate_service: The CandidateService instance (from dependency)
         
     Returns:
         CandidateResponse: The created candidate
     """
-    return await service.create_candidate(candidate.dict())
+    return await candidate_service.create_candidate(candidate)
+
+@router.get("/candidates", response_model=List[CandidateResponse], summary="List Candidates")
+async def get_candidates(
+    skip: int = 0,
+    limit: int = 100,
+    admin: dict = Depends(get_current_admin),
+    candidate_service: CandidateService = Depends(get_candidate_service)
+):
+    """
+    List candidates in the system.
+    
+    This endpoint returns a list of candidates with pagination.
+    
+    Args:
+        skip: The number of candidates to skip
+        limit: The number of candidates to return
+        admin: The authenticated admin user (from dependency)
+        candidate_service: The CandidateService instance (from dependency)
+        
+    Returns:
+        list: List of candidates
+    """
+    return await candidate_service.get_all_candidates(skip=skip, limit=limit)
+
+@router.get("/candidates/{candidate_id}", response_model=CandidateDetailResponse, summary="Get Candidate Details")
+async def get_candidate(
+    candidate_id: str,
+    admin: dict = Depends(get_current_admin),
+    candidate_service: CandidateService = Depends(get_candidate_service)
+):
+    """
+    Get details of a specific candidate.
+    
+    This endpoint returns detailed information about a candidate including
+    personal information, education history, exams, and credentials.
+    
+    Args:
+        candidate_id: The ID of the candidate to retrieve
+        admin: The authenticated admin user (from dependency)
+        candidate_service: The CandidateService instance (from dependency)
+        
+    Returns:
+        CandidateDetailResponse: The retrieved candidate details
+        
+    Raises:
+        HTTPException: If candidate not found
+    """
+    candidate = await candidate_service.get_candidate(candidate_id)
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Candidate with ID {candidate_id} not found"
+        )
+    return candidate
 
 @router.put("/candidates/{candidate_id}", response_model=CandidateResponse, summary="Update Candidate")
 async def update_candidate(
     candidate_id: str,
     candidate: CandidateUpdate,
     admin: dict = Depends(get_current_admin),
-    service: CandidateService = Depends(get_candidate_service)
+    candidate_service: CandidateService = Depends(get_candidate_service)
 ):
     """
     Update an existing candidate's information.
@@ -191,7 +244,7 @@ async def update_candidate(
         candidate_id: The ID of the candidate to update
         candidate: The updated candidate data
         admin: The authenticated admin user (from dependency)
-        service: The CandidateService instance (from dependency)
+        candidate_service: The CandidateService instance (from dependency)
         
     Returns:
         CandidateResponse: The updated candidate
@@ -199,7 +252,7 @@ async def update_candidate(
     Raises:
         HTTPException: If candidate not found
     """
-    updated_candidate = await service.update_candidate(candidate_id, candidate.dict(exclude_unset=True))
+    updated_candidate = await candidate_service.update_candidate(candidate_id, candidate)
     if not updated_candidate:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -211,7 +264,7 @@ async def update_candidate(
 async def delete_candidate(
     candidate_id: str,
     admin: dict = Depends(get_current_admin),
-    service: CandidateService = Depends(get_candidate_service)
+    candidate_service: CandidateService = Depends(get_candidate_service)
 ):
     """
     Delete a candidate from the system.
@@ -222,17 +275,13 @@ async def delete_candidate(
     Args:
         candidate_id: The ID of the candidate to delete
         admin: The authenticated admin user (from dependency)
-        service: The CandidateService instance (from dependency)
+        candidate_service: The CandidateService instance (from dependency)
         
     Raises:
         HTTPException: If candidate not found
     """
-    deleted = await service.delete_candidate(candidate_id)
-    if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Candidate with ID {candidate_id} not found"
-        )
+    await candidate_service.delete_candidate(candidate_id)
+    return {"message": "Candidate deleted successfully"}
 
 @router.post("/invitations", status_code=status.HTTP_201_CREATED, summary="Generate Invitation Code")
 async def generate_invitation(
@@ -518,5 +567,30 @@ async def synchronize_entity_relationships(
             "message": f"Error during relationship synchronization for {entity_type}: {str(e)}",
             "results": {}
         }
+
+@router.post("/import-excel")
+async def import_excel(
+    file: UploadFile = File(...),
+    current_admin = Depends(get_current_admin)
+):
+    """
+    Import data from Excel file into database.
+    """
+    try:
+        if not file.filename.endswith(('.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="Only Excel files are allowed")
+        
+        excel_service = ExcelImportService()
+        result = await excel_service.import_excel(file)
+        
+        return JSONResponse(
+            content={
+                "message": "Import successful",
+                "details": result
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error importing Excel file: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Additional admin routes for managing exams, schools, etc. would go here

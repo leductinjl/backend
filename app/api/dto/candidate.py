@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, List, Dict, Any
-from datetime import date
+from datetime import date, datetime
 
 # Base model with common attributes
 class CandidateBase(BaseModel):
@@ -43,13 +43,18 @@ class PersonalInfoUpdate(BaseModel):
 # Response model for candidate list
 class CandidateResponse(CandidateBase):
     candidate_id: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    personal_info: Optional[PersonalInfoBase] = None
 
     class Config:
         from_attributes = True
 
 # Response model for candidate details
 class CandidateDetailResponse(CandidateResponse):
-    personal_info: Optional[PersonalInfoBase] = None
+    education_histories: Optional[List[Dict[str, Any]]] = None
+    candidate_exams: Optional[List[Dict[str, Any]]] = None
+    credentials: Optional[List[Dict[str, Any]]] = None
 
     class Config:
         from_attributes = True 

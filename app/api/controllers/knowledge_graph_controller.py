@@ -23,16 +23,51 @@ async def get_graph_overview(
     Returns nodes and relationships in the graph, limited to the specified number.
     """
     try:
-        # Query to get nodes and relationships with limit
-        query = """
+        # Query to get total number of nodes and relationships
+        count_query = """
+        MATCH (n)
+        WITH count(n) as total_nodes
+        MATCH ()-[r]->()
+        RETURN total_nodes, count(r) as total_relationships
+        """
+        
+        # Query to get node type counts
+        node_type_query = """
+        MATCH (n)
+        WITH labels(n) as types, count(n) as count
+        UNWIND types as type
+        RETURN type, count
+        """
+        
+        # Query to get relationship type counts
+        rel_type_query = """
+        MATCH ()-[r]->()
+        RETURN type(r) as type, count(r) as count
+        """
+        
+        # Execute count queries
+        count_result = await neo4j.execute_query(count_query)
+        total_nodes = count_result[0][0]
+        total_relationships = count_result[0][1]
+        
+        # Get node type counts
+        node_type_result = await neo4j.execute_query(node_type_query)
+        node_type_counts = {record[0]: record[1] for record in node_type_result}
+        
+        # Get relationship type counts
+        rel_type_result = await neo4j.execute_query(rel_type_query)
+        rel_type_counts = {record[0]: record[1] for record in rel_type_result}
+        
+        # Query to get sample nodes and relationships
+        sample_query = """
         MATCH (n)
         OPTIONAL MATCH (n)-[r]->(m)
         RETURN n, r, m
         LIMIT $limit
         """
         
-        # Execute the query
-        result = await neo4j.execute_query(query, {"limit": limit})
+        # Execute the sample query
+        result = await neo4j.execute_query(sample_query, {"limit": limit})
         
         # Format the response
         nodes = {}
@@ -77,8 +112,10 @@ async def get_graph_overview(
         response = {
             "nodes": list(nodes.values()),
             "relationships": relationships,
-            "total_nodes": len(nodes),
-            "total_relationships": len(relationships)
+            "total_nodes": total_nodes,
+            "total_relationships": total_relationships,
+            "node_type_counts": node_type_counts,
+            "relationship_type_counts": rel_type_counts
         }
         
         return response

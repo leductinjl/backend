@@ -40,6 +40,7 @@ from app.api.controllers.recognition_router import router as recognition_router
 from app.api.controllers.award_router import router as award_router
 from app.api.controllers.achievement_router import router as achievement_router
 from app.api.controllers.knowledge_graph_controller import router as knowledge_graph_router
+from app.api.controllers.candidate_search_router import router as search_router
 
 logger = logging.getLogger("api")
 
@@ -125,4 +126,7 @@ def setup_routes(app: FastAPI):
             "message": f"Welcome to {settings.APP_NAME}",
             "version": settings.APP_VERSION,
             "docs": f"{settings.API_PREFIX}/docs"
-        } 
+        }
+
+    # Thêm router tìm kiếm
+    app.include_router(search_router, prefix=settings.API_PREFIX) 
