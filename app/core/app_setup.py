@@ -87,7 +87,14 @@ def create_application() -> FastAPI:
     # Add CORS middleware
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],  # Frontend URL
+        allow_origins=[
+            "http://localhost:3000",  # Frontend URL
+            "http://localhost:8000",  # Local API
+            "http://127.0.0.1:8000",  # Local API alternative
+            "http://10.0.2.2:8000",   # Android emulator
+            "http://192.168.1.*:8000", # Local network
+            "http://*:8000"           # Any IP on port 8000
+        ],
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],

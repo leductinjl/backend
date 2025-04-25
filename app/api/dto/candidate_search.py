@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import date
+from pydantic import model_validator
 
 # DTO cho kết quả tìm kiếm cơ bản
 class CandidateBasicInfo(BaseModel):
@@ -171,15 +172,21 @@ class CandidateSearchResult(BaseModel):
 
 # DTO cho yêu cầu tìm kiếm thí sinh
 class CandidateSearchRequest(BaseModel):
-    candidate_id: Optional[str] = None
-    id_number: Optional[str] = None
-    full_name: Optional[str] = None
-    birth_date: Optional[date] = None
-    phone_number: Optional[str] = None
-    email: Optional[str] = None
-    address: Optional[str] = None
-    registration_number: Optional[str] = None
-    exam_id: Optional[str] = None
-    school_id: Optional[str] = None
-    page: int = 1
-    page_size: int = 10 
+    candidate_id: Optional[str] = Field(None, description="Mã thí sinh")
+    id_number: Optional[str] = Field(None, description="Số căn cước/CMND/Định danh")
+    full_name: Optional[str] = Field(None, description="Họ và tên (chỉ dùng khi có mã thí sinh hoặc số căn cước)")
+    birth_date: Optional[date] = Field(None, description="Ngày sinh (YYYY-MM-DD)")
+    phone_number: Optional[str] = Field(None, description="Số điện thoại")
+    email: Optional[str] = Field(None, description="Địa chỉ email")
+    address: Optional[str] = Field(None, description="Địa chỉ (tìm trong cả địa chỉ chính và phụ)")
+    registration_number: Optional[str] = Field(None, description="Số báo danh trong kỳ thi")
+    exam_id: Optional[str] = Field(None, description="Mã kỳ thi")
+    school_id: Optional[str] = Field(None, description="Mã trường học")
+    page: int = Field(1, ge=1, description="Số trang")
+    page_size: int = Field(10, ge=1, le=100, description="Kích thước trang")
+
+    @model_validator(mode='after')
+    def validate_identification_fields(self) -> 'CandidateSearchRequest':
+        if not self.candidate_id and not self.id_number:
+            raise ValueError("Yêu cầu ít nhất một thông tin định danh (mã thí sinh hoặc số căn cước)")
+        return self 

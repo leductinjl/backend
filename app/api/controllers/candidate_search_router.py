@@ -51,7 +51,7 @@ async def get_candidate_search_service(
 async def search_candidates(
     candidate_id: Optional[str] = Query(None, description="Mã thí sinh"),
     id_number: Optional[str] = Query(None, description="Số căn cước/CMND/Định danh"),
-    full_name: Optional[str] = Query(None, description="Họ và tên"),
+    full_name: Optional[str] = Query(None, description="Họ và tên (chỉ dùng khi có mã thí sinh hoặc số căn cước)"),
     birth_date: Optional[date] = Query(None, description="Ngày sinh (YYYY-MM-DD)"),
     phone_number: Optional[str] = Query(None, description="Số điện thoại"),
     email: Optional[str] = Query(None, description="Địa chỉ email"),
@@ -59,6 +59,7 @@ async def search_candidates(
     registration_number: Optional[str] = Query(None, description="Số báo danh trong kỳ thi"),
     exam_id: Optional[str] = Query(None, description="Mã kỳ thi"),
     school_id: Optional[str] = Query(None, description="Mã trường học"),
+    case_sensitive: bool = Query(False, description="Có phân biệt chữ hoa/thường không"),
     page: int = Query(1, ge=1, description="Số trang"),
     page_size: int = Query(10, ge=1, le=100, description="Kích thước trang"),
     service: CandidateSearchService = Depends(get_candidate_search_service)
@@ -67,13 +68,24 @@ async def search_candidates(
     Tìm kiếm thí sinh theo nhiều tiêu chí khác nhau.
     
     Endpoint cho phép tìm kiếm thí sinh dựa trên nhiều tiêu chí như mã thí sinh, 
-    số căn cước, họ tên, ngày sinh, v.v. Người dùng có thể kết hợp các tiêu chí 
-    để thu hẹp kết quả tìm kiếm.
+    số căn cước, họ tên, ngày sinh, v.v. Người dùng phải cung cấp ít nhất một thông tin định danh
+    (mã thí sinh hoặc số căn cước) để thực hiện tìm kiếm.
     
     Returns:
         CandidateSearchResult: Kết quả tìm kiếm bao gồm danh sách thí sinh và thông tin phân trang
     """
     try:
+        # Kiểm tra xem có ít nhất một thông tin định danh không
+        if not candidate_id and not id_number:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "MISSING_IDENTIFICATION",
+                    "message": "Vui lòng cung cấp ít nhất một thông tin định danh (mã thí sinh hoặc số căn cước)",
+                    "details": "Không thể tìm kiếm chỉ bằng tên. Cần có mã thí sinh hoặc số căn cước để xác định thí sinh chính xác."
+                }
+            )
+        
         # Tạo từ điển chứa các tiêu chí tìm kiếm
         search_criteria = {
             "candidate_id": candidate_id,
@@ -85,7 +97,8 @@ async def search_candidates(
             "address": address,
             "registration_number": registration_number,
             "exam_id": exam_id,
-            "school_id": school_id
+            "school_id": school_id,
+            "case_sensitive": case_sensitive
         }
         
         # Lọc bỏ các tiêu chí có giá trị None
@@ -95,6 +108,8 @@ async def search_candidates(
         result = await service.search_candidates(search_criteria, page, page_size)
         return result
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -119,6 +134,13 @@ async def search_candidates_post(
         CandidateSearchResult: Kết quả tìm kiếm bao gồm danh sách thí sinh và thông tin phân trang
     """
     try:
+        # Kiểm tra xem có ít nhất một thông tin định danh không
+        if not search_request.candidate_id and not search_request.id_number:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Yêu cầu ít nhất một thông tin định danh (mã thí sinh hoặc số căn cước)"
+            )
+        
         # Chuyển đổi search_request thành dictionary
         search_criteria = search_request.model_dump(exclude={"page", "page_size"})
         
@@ -129,6 +151,8 @@ async def search_candidates_post(
         result = await service.search_candidates(search_criteria, search_request.page, search_request.page_size)
         return result
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

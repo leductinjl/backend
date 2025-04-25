@@ -33,16 +33,58 @@ class CandidateSearchRepository:
             Tuple gồm danh sách thí sinh và tổng số kết quả
         """
         try:
+            # Kiểm tra xem có ít nhất một thông tin định danh không
+            if not search_criteria.get("candidate_id") and not search_criteria.get("id_number"):
+                return [], 0
+                
             # Tính toán skip dựa trên page và page_size
             skip = (page - 1) * page_size
+            
+            # Lấy tham số case_sensitive, mặc định là False
+            case_sensitive = search_criteria.get("case_sensitive", False)
             
             # Xây dựng truy vấn Cypher
             query = """
             MATCH (c:Candidate:OntologyInstance)
             WHERE 
+              // Nếu có mã thí sinh, phải khớp chính xác
               ($candidate_id IS NULL OR c.candidate_id = $candidate_id)
+              // Nếu có số căn cước, phải khớp chính xác
               AND ($id_number IS NULL OR c.id_number = $id_number)
-              AND ($full_name IS NULL OR c.full_name CONTAINS $full_name)
+              // Nếu có tên, tùy theo case_sensitive
+              AND ($full_name IS NULL OR 
+                   CASE WHEN $case_sensitive THEN c.full_name = $full_name
+                        ELSE toLower(c.full_name) = toLower($full_name)
+                   END)
+              // Nếu có cả mã thí sinh và số căn cước, phải khớp cả hai
+              AND (
+                ($candidate_id IS NOT NULL AND $id_number IS NOT NULL AND $full_name IS NOT NULL 
+                 AND c.candidate_id = $candidate_id AND c.id_number = $id_number 
+                 AND CASE WHEN $case_sensitive THEN c.full_name = $full_name
+                         ELSE toLower(c.full_name) = toLower($full_name)
+                    END)
+                OR
+                ($candidate_id IS NOT NULL AND $id_number IS NOT NULL AND $full_name IS NULL 
+                 AND c.candidate_id = $candidate_id AND c.id_number = $id_number)
+                OR
+                ($candidate_id IS NOT NULL AND $id_number IS NULL AND $full_name IS NOT NULL 
+                 AND c.candidate_id = $candidate_id 
+                 AND CASE WHEN $case_sensitive THEN c.full_name = $full_name
+                         ELSE toLower(c.full_name) = toLower($full_name)
+                    END)
+                OR
+                ($candidate_id IS NULL AND $id_number IS NOT NULL AND $full_name IS NOT NULL 
+                 AND c.id_number = $id_number 
+                 AND CASE WHEN $case_sensitive THEN c.full_name = $full_name
+                         ELSE toLower(c.full_name) = toLower($full_name)
+                    END)
+                OR
+                ($candidate_id IS NOT NULL AND $id_number IS NULL AND $full_name IS NULL 
+                 AND c.candidate_id = $candidate_id)
+                OR
+                ($candidate_id IS NULL AND $id_number IS NOT NULL AND $full_name IS NULL 
+                 AND c.id_number = $id_number)
+              )
               AND ($birth_date IS NULL OR c.birth_date = $birth_date)
               AND ($phone_number IS NULL OR c.phone_number = $phone_number)
               AND ($email IS NULL OR c.email = $email)
@@ -65,7 +107,12 @@ class CandidateSearchRepository:
               AND ($school_id IS NULL OR school_count > 0)
             
             WITH c, count(*) as total
-            ORDER BY c.full_name
+            // Ưu tiên sắp xếp theo mã thí sinh và số căn cước trước
+            ORDER BY 
+              CASE WHEN $candidate_id IS NOT NULL AND c.candidate_id = $candidate_id THEN 0
+                   WHEN $id_number IS NOT NULL AND c.id_number = $id_number THEN 1
+                   ELSE 2 END,
+              c.full_name
             SKIP $skip LIMIT $limit
             RETURN c, total
             """
@@ -82,6 +129,7 @@ class CandidateSearchRepository:
                 "registration_number": search_criteria.get("registration_number"),
                 "exam_id": search_criteria.get("exam_id"),
                 "school_id": search_criteria.get("school_id"),
+                "case_sensitive": case_sensitive,
                 "skip": skip,
                 "limit": page_size
             }
