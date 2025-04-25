@@ -257,10 +257,26 @@ class CandidateSearchRepository:
             OPTIONAL MATCH (c)-[rsch:HAS_EXAM_SCHEDULE]->(sch:ExamSchedule)
             
             // Lấy thông tin điểm thi
-            OPTIONAL MATCH (c)-[rs:RECEIVES_SCORE]->(score:ExamScore)
+            OPTIONAL MATCH (c)-[re2:ATTENDS_EXAM]->(e2:Exam)
+            OPTIONAL MATCH (c)-[rs:RECEIVES_SCORE]->(score:Score)
+            OPTIONAL MATCH (score)-[fs:FOR_SUBJECT]->(sub:Subject)
+            OPTIONAL MATCH (score)-[ie:IN_EXAM]->(exam:Exam)
+            WHERE exam.exam_id = e2.exam_id
+            AND score.score_id IS NOT NULL
+            AND exam.exam_id IS NOT NULL
+            AND exam.exam_name IS NOT NULL
+            AND sub.subject_id IS NOT NULL
+            AND sub.subject_name IS NOT NULL
+            AND score.score_value IS NOT NULL
+            AND score.score_value >= 0
+            AND score.score_value <= COALESCE(score.max_score, 10.0)
             
             // Lấy thông tin phúc khảo
             OPTIONAL MATCH (c)-[rr:REQUESTS_REVIEW]->(review:ScoreReview)
+            WHERE review.review_id IS NOT NULL
+            AND review.original_score IS NOT NULL
+            AND review.status IS NOT NULL
+            AND review.request_date IS NOT NULL
             
             RETURN 
               collect(DISTINCT {
@@ -285,15 +301,16 @@ class CandidateSearchRepository:
               }) as schedules,
               
               collect(DISTINCT {
-                exam_score_id: score.exam_score_id,
-                exam_id: rs.exam_id,
-                exam_name: rs.exam_name,
-                subject_id: rs.subject_id,
-                subject_name: rs.subject_name,
-                score: score.score,
-                max_score: score.max_score,
-                min_score: score.min_score,
-                is_final: score.is_final
+                exam_score_id: score.score_id,
+                exam_id: exam.exam_id,
+                exam_name: exam.exam_name,
+                subject_id: sub.subject_id,
+                subject_name: sub.subject_name,
+                score: score.score_value,
+                max_score: COALESCE(score.max_score, 10.0),
+                min_score: COALESCE(score.min_score, 0.0),
+                is_final: score.status = 'FINAL',
+                score_date: score.score_date
               }) as scores,
               
               collect(DISTINCT {
@@ -304,7 +321,8 @@ class CandidateSearchRepository:
                 reviewed_score: review.reviewed_score,
                 status: review.status,
                 request_date: review.request_date,
-                completion_date: review.completion_date
+                completion_date: review.completion_date,
+                reason: review.reason
               }) as reviews
             """
             

@@ -151,6 +151,7 @@ class CandidateSearchService:
                         academic_performance=s.get("academic_performance"),
                         additional_info=s.get("additional_info")
                     ) for s in education_data.get("schools", [])
+                    if s.get("school_id") is not None and s.get("school_name") is not None
                 ]
                 
                 # Chuyển đổi dữ liệu ngành học
@@ -163,6 +164,7 @@ class CandidateSearchService:
                         start_year=m.get("start_year"),
                         end_year=m.get("end_year")
                     ) for m in education_data.get("majors", [])
+                    if m.get("major_id") is not None and m.get("major_name") is not None
                 ]
                 
                 # Chuyển đổi dữ liệu bằng cấp
@@ -177,6 +179,7 @@ class CandidateSearchService:
                         school_id=d.get("school_id"),
                         school_name=d.get("school_name")
                     ) for d in education_data.get("degrees", [])
+                    if d.get("degree_id") is not None and d.get("degree_name") is not None
                 ]
                 
                 # Gán thông tin học vấn vào kết quả
@@ -196,9 +199,10 @@ class CandidateSearchService:
                         exam_id=e.get("exam_id"),
                         exam_name=e.get("exam_name"),
                         registration_number=e.get("registration_number"),
-                        registration_date=e.get("registration_date"),
+                        registration_date=self._convert_neo4j_date(e.get("registration_date")),
                         status=e.get("status")
                     ) for e in exams_data.get("exams", [])
+                    if e.get("exam_id") is not None and e.get("exam_name") is not None
                 ]
                 
                 # Chuyển đổi dữ liệu lịch thi
@@ -215,6 +219,9 @@ class CandidateSearchService:
                         start_time=s.get("start_time"),
                         end_time=s.get("end_time")
                     ) for s in exams_data.get("schedules", [])
+                    if s.get("exam_schedule_id") is not None and s.get("exam_id") is not None 
+                    and s.get("exam_name") is not None and s.get("subject_id") is not None 
+                    and s.get("subject_name") is not None
                 ]
                 
                 # Chuyển đổi dữ liệu điểm thi
@@ -230,6 +237,9 @@ class CandidateSearchService:
                         min_score=s.get("min_score", 0.0),
                         is_final=s.get("is_final", True)
                     ) for s in exams_data.get("scores", [])
+                    if s.get("exam_score_id") is not None and s.get("exam_id") is not None 
+                    and s.get("exam_name") is not None and s.get("subject_id") is not None 
+                    and s.get("subject_name") is not None and s.get("score") is not None
                 ]
                 
                 # Chuyển đổi dữ liệu phúc khảo
@@ -244,6 +254,9 @@ class CandidateSearchService:
                         request_date=r.get("request_date"),
                         completion_date=r.get("completion_date")
                     ) for r in exams_data.get("reviews", [])
+                    if r.get("review_id") is not None and r.get("exam_score_id") is not None 
+                    and r.get("subject_name") is not None and r.get("original_score") is not None 
+                    and r.get("status") is not None and r.get("request_date") is not None
                 ]
                 
                 # Gán thông tin kỳ thi vào kết quả
@@ -268,6 +281,7 @@ class CandidateSearchService:
                         expiry_date=c.get("expiry_date"),
                         certificate_code=c.get("certificate_code")
                     ) for c in achievements_data.get("certificates", [])
+                    if c.get("certificate_id") is not None and c.get("certificate_name") is not None
                 ]
                 
                 # Chuyển đổi dữ liệu giấy tờ xác thực
@@ -281,6 +295,9 @@ class CandidateSearchService:
                         expiry_date=c.get("expiry_date"),
                         verification_status=c.get("verification_status")
                     ) for c in achievements_data.get("credentials", [])
+                    if c.get("credential_id") is not None and c.get("title") is not None 
+                    and c.get("credential_type") is not None and c.get("issuing_organization") is not None 
+                    and c.get("issue_date") is not None
                 ]
                 
                 # Chuyển đổi dữ liệu giải thưởng
@@ -293,6 +310,9 @@ class CandidateSearchService:
                         issue_date=a.get("issue_date"),
                         description=a.get("description")
                     ) for a in achievements_data.get("awards", [])
+                    if a.get("award_id") is not None and a.get("award_name") is not None 
+                    and a.get("award_level") is not None and a.get("issuing_organization") is not None 
+                    and a.get("issue_date") is not None
                 ]
                 
                 # Chuyển đổi dữ liệu thành tích
@@ -305,6 +325,8 @@ class CandidateSearchService:
                         date_achieved=a.get("date_achieved"),
                         issuing_organization=a.get("issuing_organization")
                     ) for a in achievements_data.get("achievements", [])
+                    if a.get("achievement_id") is not None and a.get("achievement_name") is not None 
+                    and a.get("achievement_type") is not None and a.get("date_achieved") is not None
                 ]
                 
                 # Chuyển đổi dữ liệu công nhận
@@ -316,6 +338,8 @@ class CandidateSearchService:
                         issue_date=r.get("issue_date"),
                         issuing_organization=r.get("issuing_organization")
                     ) for r in achievements_data.get("recognitions", [])
+                    if r.get("recognition_id") is not None and r.get("recognition_type") is not None 
+                    and r.get("issue_date") is not None
                 ]
                 
                 # Gán thông tin thành tích vào kết quả
@@ -427,9 +451,10 @@ class CandidateSearchService:
                     exam_id=e.get("exam_id"),
                     exam_name=e.get("exam_name"),
                     registration_number=e.get("registration_number"),
-                    registration_date=e.get("registration_date"),
+                    registration_date=self._convert_neo4j_date(e.get("registration_date")),
                     status=e.get("status")
                 ) for e in exams_data.get("exams", [])
+                if e.get("exam_id") is not None and e.get("exam_name") is not None
             ]
             
             # Chuyển đổi dữ liệu lịch thi
@@ -446,6 +471,9 @@ class CandidateSearchService:
                     start_time=s.get("start_time"),
                     end_time=s.get("end_time")
                 ) for s in exams_data.get("schedules", [])
+                if s.get("exam_schedule_id") is not None and s.get("exam_id") is not None 
+                and s.get("exam_name") is not None and s.get("subject_id") is not None 
+                and s.get("subject_name") is not None
             ]
             
             # Chuyển đổi dữ liệu điểm thi
@@ -461,6 +489,9 @@ class CandidateSearchService:
                     min_score=s.get("min_score", 0.0),
                     is_final=s.get("is_final", True)
                 ) for s in exams_data.get("scores", [])
+                if s.get("exam_score_id") is not None and s.get("exam_id") is not None 
+                and s.get("exam_name") is not None and s.get("subject_id") is not None 
+                and s.get("subject_name") is not None and s.get("score") is not None
             ]
             
             # Chuyển đổi dữ liệu phúc khảo
@@ -475,6 +506,9 @@ class CandidateSearchService:
                     request_date=r.get("request_date"),
                     completion_date=r.get("completion_date")
                 ) for r in exams_data.get("reviews", [])
+                if r.get("review_id") is not None and r.get("exam_score_id") is not None 
+                and r.get("subject_name") is not None and r.get("original_score") is not None 
+                and r.get("status") is not None and r.get("request_date") is not None
             ]
             
             # Trả về kết quả
