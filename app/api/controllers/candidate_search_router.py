@@ -51,7 +51,7 @@ async def get_candidate_search_service(
 async def search_candidates(
     candidate_id: Optional[str] = Query(None, description="Mã thí sinh"),
     id_number: Optional[str] = Query(None, description="Số căn cước/CMND/Định danh"),
-    full_name: Optional[str] = Query(None, description="Họ và tên (chỉ dùng khi có mã thí sinh hoặc số căn cước)"),
+    full_name: Optional[str] = Query(None, description="Họ và tên"),
     birth_date: Optional[date] = Query(None, description="Ngày sinh (YYYY-MM-DD)"),
     phone_number: Optional[str] = Query(None, description="Số điện thoại"),
     email: Optional[str] = Query(None, description="Địa chỉ email"),
@@ -68,25 +68,13 @@ async def search_candidates(
     Tìm kiếm thí sinh theo nhiều tiêu chí khác nhau.
     
     Endpoint cho phép tìm kiếm thí sinh dựa trên nhiều tiêu chí như mã thí sinh, 
-    số căn cước, họ tên, ngày sinh, v.v. Người dùng phải cung cấp ít nhất một thông tin định danh
-    (mã thí sinh hoặc số căn cước) để thực hiện tìm kiếm.
+    số căn cước, họ tên, ngày sinh, v.v. Hỗ trợ tìm kiếm gần đúng và không phân biệt hoa thường.
     
     Returns:
         CandidateSearchResult: Kết quả tìm kiếm bao gồm danh sách thí sinh và thông tin phân trang
     """
     try:
-        # Kiểm tra xem có ít nhất một thông tin định danh không
-        if not candidate_id and not id_number:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "error": "MISSING_IDENTIFICATION",
-                    "message": "Vui lòng cung cấp ít nhất một thông tin định danh (mã thí sinh hoặc số căn cước)",
-                    "details": "Không thể tìm kiếm chỉ bằng tên. Cần có mã thí sinh hoặc số căn cước để xác định thí sinh chính xác."
-                }
-            )
-        
-        # Tạo từ điển chứa các tiêu chí tìm kiếm
+        # Kiểm tra xem có ít nhất một tiêu chí tìm kiếm không
         search_criteria = {
             "candidate_id": candidate_id,
             "id_number": id_number,
@@ -101,8 +89,18 @@ async def search_candidates(
             "case_sensitive": case_sensitive
         }
         
-        # Lọc bỏ các tiêu chí có giá trị None
+        # Lọc bỏ các tiêu chí None
         search_criteria = {k: v for k, v in search_criteria.items() if v is not None}
+        
+        if not search_criteria:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "NO_SEARCH_CRITERIA",
+                    "message": "Vui lòng cung cấp ít nhất một tiêu chí tìm kiếm",
+                    "details": "Không thể thực hiện tìm kiếm khi không có tiêu chí nào được cung cấp"
+                }
+            )
         
         # Thực hiện tìm kiếm
         result = await service.search_candidates(search_criteria, page, page_size)
@@ -134,18 +132,21 @@ async def search_candidates_post(
         CandidateSearchResult: Kết quả tìm kiếm bao gồm danh sách thí sinh và thông tin phân trang
     """
     try:
-        # Kiểm tra xem có ít nhất một thông tin định danh không
-        if not search_request.candidate_id and not search_request.id_number:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Yêu cầu ít nhất một thông tin định danh (mã thí sinh hoặc số căn cước)"
-            )
-        
         # Chuyển đổi search_request thành dictionary
         search_criteria = search_request.model_dump(exclude={"page", "page_size"})
         
-        # Lọc bỏ các tiêu chí có giá trị None
+        # Lọc bỏ các tiêu chí None
         search_criteria = {k: v for k, v in search_criteria.items() if v is not None}
+        
+        if not search_criteria:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "NO_SEARCH_CRITERIA",
+                    "message": "Vui lòng cung cấp ít nhất một tiêu chí tìm kiếm",
+                    "details": "Không thể thực hiện tìm kiếm khi không có tiêu chí nào được cung cấp"
+                }
+            )
         
         # Thực hiện tìm kiếm
         result = await service.search_candidates(search_criteria, search_request.page, search_request.page_size)

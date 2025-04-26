@@ -33,10 +33,6 @@ class CandidateSearchRepository:
             Tuple gồm danh sách thí sinh và tổng số kết quả
         """
         try:
-            # Kiểm tra xem có ít nhất một thông tin định danh không
-            if not search_criteria.get("candidate_id") and not search_criteria.get("id_number"):
-                return [], 0
-                
             # Tính toán skip dựa trên page và page_size
             skip = (page - 1) * page_size
             
@@ -47,59 +43,70 @@ class CandidateSearchRepository:
             query = """
             MATCH (c:Candidate:OntologyInstance)
             WHERE 
-              // Nếu có mã thí sinh, phải khớp chính xác
-              ($candidate_id IS NULL OR c.candidate_id = $candidate_id)
-              // Nếu có số căn cước, phải khớp chính xác
-              AND ($id_number IS NULL OR c.id_number = $id_number)
-              // Nếu có tên, tùy theo case_sensitive
-              AND ($full_name IS NULL OR 
-                   CASE WHEN $case_sensitive THEN c.full_name = $full_name
-                        ELSE toLower(c.full_name) = toLower($full_name)
+              // Tìm kiếm gần đúng mã thí sinh
+              ($candidate_id IS NULL OR 
+               CASE WHEN $case_sensitive 
+                    THEN c.candidate_id CONTAINS $candidate_id
+                    ELSE toLower(c.candidate_id) CONTAINS toLower($candidate_id)
+               END)
+              // Tìm kiếm gần đúng số căn cước
+              AND ($id_number IS NULL OR 
+                   CASE WHEN $case_sensitive 
+                        THEN c.id_number CONTAINS $id_number
+                        ELSE toLower(c.id_number) CONTAINS toLower($id_number)
                    END)
-              // Nếu có cả mã thí sinh và số căn cước, phải khớp cả hai
-              AND (
-                ($candidate_id IS NOT NULL AND $id_number IS NOT NULL AND $full_name IS NOT NULL 
-                 AND c.candidate_id = $candidate_id AND c.id_number = $id_number 
-                 AND CASE WHEN $case_sensitive THEN c.full_name = $full_name
-                         ELSE toLower(c.full_name) = toLower($full_name)
-                    END)
-                OR
-                ($candidate_id IS NOT NULL AND $id_number IS NOT NULL AND $full_name IS NULL 
-                 AND c.candidate_id = $candidate_id AND c.id_number = $id_number)
-                OR
-                ($candidate_id IS NOT NULL AND $id_number IS NULL AND $full_name IS NOT NULL 
-                 AND c.candidate_id = $candidate_id 
-                 AND CASE WHEN $case_sensitive THEN c.full_name = $full_name
-                         ELSE toLower(c.full_name) = toLower($full_name)
-                    END)
-                OR
-                ($candidate_id IS NULL AND $id_number IS NOT NULL AND $full_name IS NOT NULL 
-                 AND c.id_number = $id_number 
-                 AND CASE WHEN $case_sensitive THEN c.full_name = $full_name
-                         ELSE toLower(c.full_name) = toLower($full_name)
-                    END)
-                OR
-                ($candidate_id IS NOT NULL AND $id_number IS NULL AND $full_name IS NULL 
-                 AND c.candidate_id = $candidate_id)
-                OR
-                ($candidate_id IS NULL AND $id_number IS NOT NULL AND $full_name IS NULL 
-                 AND c.id_number = $id_number)
-              )
+              // Tìm kiếm gần đúng họ tên
+              AND ($full_name IS NULL OR 
+                   CASE WHEN $case_sensitive 
+                        THEN c.full_name CONTAINS $full_name
+                        ELSE toLower(c.full_name) CONTAINS toLower($full_name)
+                   END)
               AND ($birth_date IS NULL OR c.birth_date = $birth_date)
-              AND ($phone_number IS NULL OR c.phone_number = $phone_number)
-              AND ($email IS NULL OR c.email = $email)
-              AND ($address IS NULL OR c.address CONTAINS $address OR c.primary_address CONTAINS $address 
-                   OR c.secondary_address CONTAINS $address)
+              // Tìm kiếm gần đúng số điện thoại
+              AND ($phone_number IS NULL OR 
+                   CASE WHEN $case_sensitive 
+                        THEN c.phone_number CONTAINS $phone_number
+                        ELSE toLower(c.phone_number) CONTAINS toLower($phone_number)
+                   END)
+              // Tìm kiếm gần đúng email
+              AND ($email IS NULL OR 
+                   CASE WHEN $case_sensitive 
+                        THEN c.email CONTAINS $email
+                        ELSE toLower(c.email) CONTAINS toLower($email)
+                   END)
+              // Tìm kiếm gần đúng địa chỉ
+              AND ($address IS NULL OR 
+                   CASE WHEN $case_sensitive THEN
+                        (c.address CONTAINS $address OR 
+                         c.primary_address CONTAINS $address OR 
+                         c.secondary_address CONTAINS $address)
+                   ELSE
+                        (toLower(c.address) CONTAINS toLower($address) OR 
+                         toLower(c.primary_address) CONTAINS toLower($address) OR 
+                         toLower(c.secondary_address) CONTAINS toLower($address))
+                   END)
             
             // Tìm theo mã số trong kỳ thi
             OPTIONAL MATCH (c)-[r:ATTENDS_EXAM]->(e:Exam)
             WHERE 
-              ($registration_number IS NULL OR r.registration_number = $registration_number)
-              AND ($exam_id IS NULL OR e.exam_id = $exam_id)
+              ($registration_number IS NULL OR 
+               CASE WHEN $case_sensitive 
+                    THEN r.registration_number CONTAINS $registration_number
+                    ELSE toLower(r.registration_number) CONTAINS toLower($registration_number)
+               END)
+              AND ($exam_id IS NULL OR 
+                   CASE WHEN $case_sensitive 
+                        THEN e.exam_id CONTAINS $exam_id
+                        ELSE toLower(e.exam_id) CONTAINS toLower($exam_id)
+                   END)
               
             // Tìm theo trường học
             OPTIONAL MATCH (c)-[rs:STUDIES_AT]->(s:School)
-            WHERE $school_id IS NULL OR s.school_id = $school_id
+            WHERE $school_id IS NULL OR 
+                  CASE WHEN $case_sensitive 
+                       THEN s.school_id CONTAINS $school_id
+                       ELSE toLower(s.school_id) CONTAINS toLower($school_id)
+                  END
               
             WITH c, COUNT(DISTINCT e) as exam_count, COUNT(DISTINCT s) as school_count
             WHERE 
@@ -107,11 +114,14 @@ class CandidateSearchRepository:
               AND ($school_id IS NULL OR school_count > 0)
             
             WITH c, count(*) as total
-            // Ưu tiên sắp xếp theo mã thí sinh và số căn cước trước
+            // Sắp xếp theo độ phù hợp và tên
             ORDER BY 
-              CASE WHEN $candidate_id IS NOT NULL AND c.candidate_id = $candidate_id THEN 0
-                   WHEN $id_number IS NOT NULL AND c.id_number = $id_number THEN 1
-                   ELSE 2 END,
+              CASE 
+                WHEN $candidate_id IS NOT NULL AND c.candidate_id CONTAINS $candidate_id THEN 0
+                WHEN $id_number IS NOT NULL AND c.id_number CONTAINS $id_number THEN 1
+                WHEN $full_name IS NOT NULL AND toLower(c.full_name) CONTAINS toLower($full_name) THEN 2
+                ELSE 3 
+              END,
               c.full_name
             SKIP $skip LIMIT $limit
             RETURN c, total

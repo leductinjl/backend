@@ -7,6 +7,7 @@ It helps protect the API from abuse, DoS attacks, and ensures fair resource usag
 """
 
 from fastapi import Request, Response, HTTPException
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 import time
@@ -26,7 +27,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         self, 
         app: ASGIApp, 
         redis_cache: RedisCache,
-        requests_limit: int = 100,
+        requests_limit: int = 1000,
         window_seconds: int = 60
     ):
         """
@@ -98,7 +99,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
             )
             
             # Return rate limit exceeded response
-            response = Response(
+            response = JSONResponse(
                 content={"detail": "Rate limit exceeded. Try again later."},
                 status_code=429
             )
