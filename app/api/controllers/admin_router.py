@@ -6,7 +6,7 @@ exams, schools, and other administrative tasks. All endpoints in this router
 require admin authentication.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Path, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Path, UploadFile, File, Form
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
@@ -16,6 +16,7 @@ import pytz
 import logging
 import os
 import tempfile
+import asyncio
 
 from app.infrastructure.database.connection import get_db
 from app.infrastructure.ontology.neo4j_connection import get_neo4j
@@ -30,7 +31,8 @@ from app.api.dto.candidate import (
     CandidateCreate, 
     CandidateUpdate, 
     CandidateResponse, 
-    CandidateDetailResponse
+    CandidateDetailResponse,
+    ImageUploadRequest
 )
 from app.api.dto.admin import AdminRegisterRequest, AdminLoginResponse
 from app.api.dto.dashboard import DashboardStats
@@ -38,6 +40,9 @@ from app.api.dto.dashboard import DashboardStats
 from app.api.controllers.admin_auth import admin_login, admin_register
 from app.domain.models.invitation import Invitation
 from app.services.dashboard_service import DashboardService
+from app.services.image_storage_service import ImageStorageService
+from app.services.image_processing_service import ImageProcessingService
+from app.api.dependencies.image_processing import get_image_processor
 
 logger = logging.getLogger(__name__)
 
@@ -618,5 +623,249 @@ async def import_excel(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error importing Excel file: {str(e)}"
         )
+
+async def get_image_storage_service(
+    db: AsyncSession = Depends(get_db),
+    image_processor: ImageProcessingService = Depends(get_image_processor)
+) -> ImageStorageService:
+    """Dependency to get image storage service instance."""
+    return ImageStorageService(db, image_processor)
+
+@router.post("/candidates/{candidate_id}/images", summary="Upload Candidate Image")
+async def upload_candidate_image(
+    candidate_id: str = Path(..., description="ID of the candidate"),
+    image: UploadFile = File(..., description="Image file to upload"),
+    image_type: str = Form(..., description="Type of image (id_card, candidate_card, direct_face)"),
+    source: str = Form(..., description="Source of the image (upload, camera, etc.)"),
+    admin: dict = Depends(get_current_admin),
+    storage_service: ImageStorageService = Depends(get_image_storage_service)
+):
+    """
+    Upload an image for a candidate.
+    
+    This endpoint allows uploading different types of images for a candidate:
+    - ID card image
+    - Candidate card image
+    - Direct face image
+    
+    The image will be processed to generate face embeddings if applicable.
+    
+    Args:
+        candidate_id: ID of the candidate
+        image: Image file to upload
+        image_type: Type of image (id_card, candidate_card, direct_face)
+        source: Source of the image (upload, camera, etc.)
+        admin: Admin user information
+        storage_service: Image storage service
+        
+    Returns:
+        dict: Information about the saved image
+    """
+    try:
+        # Validate image type
+        valid_image_types = ["id_card", "candidate_card", "direct_face"]
+        if image_type not in valid_image_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid image type. Must be one of: {', '.join(valid_image_types)}"
+            )
+            
+        # Validate source
+        valid_sources = ["upload", "camera"]
+        if source not in valid_sources:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid source. Must be one of: {', '.join(valid_sources)}"
+            )
+            
+        # Validate file type
+        if not image.content_type.startswith('image/'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be an image"
+            )
+            
+        # Add timeout for the operation
+        result = await asyncio.wait_for(
+            storage_service.save_image(
+                candidate_id,
+                image,
+                image_type,
+                source
+            ),
+            timeout=60.0  # 60 seconds timeout for image processing
+        )
+        
+        if "error" in result:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result["error"]
+            )
+            
+        return result
+        
+    except asyncio.TimeoutError:
+        logger.error("Image processing timed out")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Image processing timed out. Please try again."
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading image: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error uploading image: {str(e)}"
+        )
+
+@router.get("/candidates/{candidate_id}/images/{image_type}", summary="Get Candidate Image URL")
+async def get_candidate_image(
+    candidate_id: str = Path(..., description="ID of the candidate"),
+    image_type: str = Path(..., description="Type of image (id_card, candidate_card, direct_face)"),
+    admin: dict = Depends(get_current_admin),
+    storage_service: ImageStorageService = Depends(get_image_storage_service)
+):
+    """
+    Get the URL of a candidate's image.
+    
+    Args:
+        candidate_id: ID of the candidate
+        image_type: Type of image to retrieve
+        admin: Admin user information
+        storage_service: Image storage service
+        
+    Returns:
+        dict: Image URL information
+    """
+    try:
+        url = await storage_service.get_image_url(candidate_id, image_type)
+        if not url:
+            return {
+                "image_url": None,
+                "message": f"No {image_type} image found for candidate {candidate_id}"
+            }
+        return {"image_url": url}
+    except Exception as e:
+        logger.error(f"Error getting image URL: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting image URL: {str(e)}"
+        )
+
+@router.post("/sync/neo4j/candidate/by-id-number/{id_number}", response_model=dict, summary="Sync Candidate Node by ID Number")
+async def sync_candidate_by_id_number(
+    id_number: str = Path(..., description="ID number of the candidate"),
+    db: AsyncSession = Depends(get_db),
+    neo4j = Depends(get_neo4j),
+    admin: dict = Depends(get_current_admin)
+):
+    """
+    Đồng bộ node của thí sinh theo số CMND/CCCD.
+    
+    Endpoint này sẽ tìm thí sinh theo số CMND/CCCD và đồng bộ node của họ vào Neo4j.
+    
+    Args:
+        id_number: Số CMND/CCCD của thí sinh
+    """
+    try:
+        # Get candidate repository
+        candidate_repo = CandidateRepository(db)
+        
+        # Find candidate by ID number
+        candidates = await candidate_repo.get_all(id_number=id_number)
+        if not candidates or len(candidates) == 0:
+            return {
+                "status": "error",
+                "message": f"No candidate found with ID number: {id_number}"
+            }
+            
+        # Get sync service
+        sync_service = MainSyncService(session=db, driver=neo4j._driver)
+        
+        # Sync node for each candidate found
+        results = []
+        for candidate in candidates:
+            # Sync node
+            node_success = await sync_service.candidate_sync_service.sync_node_by_id(candidate.candidate_id)
+            
+            # Sync relationships
+            relationship_results = await sync_service.candidate_sync_service.sync_relationship_by_id(candidate.candidate_id)
+            
+            results.append({
+                "candidate_id": candidate.candidate_id,
+                "full_name": candidate.full_name,
+                "node_sync_success": node_success,
+                "relationships": relationship_results
+            })
+        
+        return {
+            "status": "success",
+            "message": f"Successfully synchronized {len(results)} candidate(s)",
+            "results": results
+        }
+        
+    except Exception as e:
+        logger.error(f"Error syncing candidate by ID number {id_number}: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": f"Error during synchronization: {str(e)}",
+            "results": []
+        }
+
+@router.post("/sync/neo4j/candidate/{candidate_id}", response_model=dict, summary="Sync Candidate Node by ID")
+async def sync_candidate_by_id(
+    candidate_id: str = Path(..., description="ID of the candidate to sync"),
+    db: AsyncSession = Depends(get_db),
+    neo4j = Depends(get_neo4j),
+    admin: dict = Depends(get_current_admin)
+):
+    """
+    Đồng bộ node của thí sinh theo ID.
+    
+    Endpoint này sẽ tìm thí sinh theo ID và đồng bộ node của họ vào Neo4j.
+    
+    Args:
+        candidate_id: ID của thí sinh cần đồng bộ
+    """
+    try:
+        # Get candidate repository
+        candidate_repo = CandidateRepository(db)
+        
+        # Find candidate by ID
+        candidate = await candidate_repo.get_by_id(candidate_id)
+        if not candidate:
+            return {
+                "status": "error",
+                "message": f"No candidate found with ID: {candidate_id}"
+            }
+            
+        # Get sync service
+        sync_service = MainSyncService(session=db, driver=neo4j._driver)
+        
+        # Sync node
+        node_success = await sync_service.candidate_sync_service.sync_node_by_id(candidate_id)
+        
+        # Sync relationships
+        relationship_results = await sync_service.candidate_sync_service.sync_relationship_by_id(candidate_id)
+        
+        return {
+            "status": "success",
+            "message": f"Successfully synchronized candidate {candidate.full_name}",
+            "results": {
+                "candidate_id": candidate_id,
+                "full_name": candidate.full_name,
+                "node_sync_success": node_success,
+                "relationships": relationship_results
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error syncing candidate {candidate_id}: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": f"Error during synchronization: {str(e)}",
+            "results": {}
+        }
 
 # Additional admin routes for managing exams, schools, etc. would go here

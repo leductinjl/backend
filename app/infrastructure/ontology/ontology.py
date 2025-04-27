@@ -82,7 +82,14 @@ CANDIDATE = {
         "id_number": "National ID number",
         "phone_number": "Contact phone number",
         "email": "Email address",
-        "address": "Primary address"
+        "address": "Primary address",
+        "id_card_image_url": "URL to ID card image",
+        "candidate_card_image_url": "URL to candidate card image",
+        "face_recognition_data_url": "URL to face recognition data",
+        "face_embedding": "Face embedding vector stored as JSON",
+        "face_embedding_model": "Name of the model used to generate embedding",
+        "face_embedding_date": "Date when the embedding was generated",
+        "face_embedding_source": "Source of the image (id_card, candidate_card, direct_face)"
     },
     "create_query": """
     MERGE (c:Candidate {candidate_id: $candidate_id})
@@ -94,6 +101,13 @@ CANDIDATE = {
         c.phone_number = $phone_number,
         c.email = $email,
         c.address = $address,
+        c.id_card_image_url = $id_card_image_url,
+        c.candidate_card_image_url = $candidate_card_image_url,
+        c.face_recognition_data_url = $face_recognition_data_url,
+        c.face_embedding = $face_embedding,
+        c.face_embedding_model = $face_embedding_model,
+        c.face_embedding_date = $face_embedding_date,
+        c.face_embedding_source = $face_embedding_source,
         c.created_at = datetime(),
         c.updated_at = datetime()
     ON MATCH SET
@@ -103,6 +117,13 @@ CANDIDATE = {
         c.phone_number = $phone_number,
         c.email = $email,
         c.address = $address,
+        c.id_card_image_url = $id_card_image_url,
+        c.candidate_card_image_url = $candidate_card_image_url,
+        c.face_recognition_data_url = $face_recognition_data_url,
+        c.face_embedding = $face_embedding,
+        c.face_embedding_model = $face_embedding_model,
+        c.face_embedding_date = $face_embedding_date,
+        c.face_embedding_source = $face_embedding_source,
         c.updated_at = datetime()
     RETURN c
     """

@@ -489,8 +489,30 @@ class CandidateSyncService(BaseSyncService):
                 full_name=candidate.full_name
             )
             
-            # Xử lý personal_info nếu được tải như một dictionary
-            if isinstance(candidate, dict) and "personal_info" in candidate:
+            # Handle personal_info if available
+            if hasattr(candidate, 'personal_info') and candidate.personal_info:
+                personal_info = candidate.personal_info
+                candidate_node.birth_date = personal_info.birth_date
+                candidate_node.id_number = personal_info.id_number
+                candidate_node.phone_number = personal_info.phone_number
+                candidate_node.email = personal_info.email
+                candidate_node.address = personal_info.primary_address
+                candidate_node.id_card_image_url = personal_info.id_card_image_url
+                candidate_node.candidate_card_image_url = personal_info.candidate_card_image_url
+                candidate_node.face_recognition_data_url = personal_info.face_recognition_data_url
+                
+                # Add face embedding fields
+                candidate_node.face_embedding = personal_info.face_embedding
+                candidate_node.face_embedding_model = personal_info.face_embedding_model
+                candidate_node.face_embedding_date = personal_info.face_embedding_date
+                candidate_node.face_embedding_source = personal_info.face_embedding_source
+                
+                # Keep additional info if available
+                if hasattr(personal_info, 'additional_info'):
+                    candidate_node.additional_info = personal_info.additional_info
+            
+            # Handle case when personal_info is a dictionary
+            elif isinstance(candidate, dict) and "personal_info" in candidate:
                 personal_info = candidate["personal_info"]
                 if personal_info:
                     candidate_node.birth_date = personal_info.get("birth_date")
@@ -501,25 +523,19 @@ class CandidateSyncService(BaseSyncService):
                     candidate_node.id_card_image_url = personal_info.get("id_card_image_url")
                     candidate_node.candidate_card_image_url = personal_info.get("candidate_card_image_url")
                     candidate_node.face_recognition_data_url = personal_info.get("face_recognition_data_url")
-            # Xử lý personal_info khi nó là một relationship đã được eager load
-            elif hasattr(candidate, "personal_info") and candidate.personal_info is not None:
-                # Đã tải personal_info thông qua eager loading
-                personal_info = candidate.personal_info
-                candidate_node.birth_date = personal_info.birth_date
-                candidate_node.id_number = personal_info.id_number
-                candidate_node.phone_number = personal_info.phone_number
-                candidate_node.email = personal_info.email
-                candidate_node.address = personal_info.primary_address
-                candidate_node.id_card_image_url = personal_info.id_card_image_url
-                candidate_node.candidate_card_image_url = personal_info.candidate_card_image_url
-                candidate_node.face_recognition_data_url = personal_info.face_recognition_data_url
+                    
+                    # Add face embedding fields
+                    candidate_node.face_embedding = personal_info.get("face_embedding")
+                    candidate_node.face_embedding_model = personal_info.get("face_embedding_model")
+                    candidate_node.face_embedding_date = personal_info.get("face_embedding_date")
+                    candidate_node.face_embedding_source = personal_info.get("face_embedding_source")
+                    
+                    # Keep additional info if available
+                    if "additional_info" in personal_info:
+                        candidate_node.additional_info = personal_info["additional_info"]
             
             return candidate_node
             
         except Exception as e:
-            logger.error(f"Error converting candidate to node: {str(e)}", exc_info=True)
-            # Return a basic node with just the ID and name as fallback
-            return CandidateNode(
-                candidate_id=candidate.candidate_id,
-                full_name=candidate.full_name
-            ) 
+            logger.error(f"Error converting candidate to node: {e}", exc_info=True)
+            raise 

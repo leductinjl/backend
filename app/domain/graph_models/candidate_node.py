@@ -18,7 +18,8 @@ class CandidateNode:
     def __init__(self, candidate_id, full_name, birth_date=None, id_number=None, 
                  phone_number=None, email=None, address=None, id_card_image_url=None,
                  candidate_card_image_url=None, face_recognition_data_url=None,
-                 additional_info=None):
+                 face_embedding=None, face_embedding_model=None, face_embedding_date=None,
+                 face_embedding_source=None, additional_info=None):
         # Thuộc tính định danh - bắt buộc
         self.candidate_id = candidate_id
         self.candidate_name = full_name  # For consistency with other node types
@@ -34,6 +35,13 @@ class CandidateNode:
         self.id_card_image_url = id_card_image_url
         self.candidate_card_image_url = candidate_card_image_url
         self.face_recognition_data_url = face_recognition_data_url
+        
+        # Face embedding fields
+        self.face_embedding = face_embedding
+        self.face_embedding_model = face_embedding_model
+        self.face_embedding_date = face_embedding_date
+        self.face_embedding_source = face_embedding_source
+        
         self.additional_info = additional_info
         
     @staticmethod
@@ -59,6 +67,10 @@ class CandidateNode:
             c.id_card_image_url = $id_card_image_url,
             c.candidate_card_image_url = $candidate_card_image_url,
             c.face_recognition_data_url = $face_recognition_data_url,
+            c.face_embedding = $face_embedding,
+            c.face_embedding_model = $face_embedding_model,
+            c.face_embedding_date = $face_embedding_date,
+            c.face_embedding_source = $face_embedding_source,
             c.additional_info = $additional_info,
             c.created_at = datetime()
         ON MATCH SET 
@@ -73,6 +85,10 @@ class CandidateNode:
             c.id_card_image_url = $id_card_image_url,
             c.candidate_card_image_url = $candidate_card_image_url,
             c.face_recognition_data_url = $face_recognition_data_url,
+            c.face_embedding = $face_embedding,
+            c.face_embedding_model = $face_embedding_model,
+            c.face_embedding_date = $face_embedding_date,
+            c.face_embedding_source = $face_embedding_source,
             c.additional_info = $additional_info,
             c.updated_at = datetime()
         RETURN c
@@ -108,6 +124,10 @@ class CandidateNode:
             "id_card_image_url": self.id_card_image_url,
             "candidate_card_image_url": self.candidate_card_image_url,
             "face_recognition_data_url": self.face_recognition_data_url,
+            "face_embedding": self.face_embedding,
+            "face_embedding_model": self.face_embedding_model,
+            "face_embedding_date": self.face_embedding_date,
+            "face_embedding_source": self.face_embedding_source,
             "additional_info": self.additional_info
         }
         
@@ -145,7 +165,15 @@ class CandidateNode:
                 node.id_card_image_url = personal_info_model.id_card_image_url
                 node.candidate_card_image_url = personal_info_model.candidate_card_image_url
                 node.face_recognition_data_url = personal_info_model.face_recognition_data_url
-                node.additional_info = None
+                
+                # Add face embedding fields
+                node.face_embedding = personal_info_model.face_embedding
+                node.face_embedding_model = personal_info_model.face_embedding_model
+                node.face_embedding_date = personal_info_model.face_embedding_date
+                node.face_embedding_source = personal_info_model.face_embedding_source
+                
+                # Keep additional info from personal info model
+                node.additional_info = personal_info_model.additional_info
             
             logger.info(f"Successfully created CandidateNode for {candidate_model.candidate_id}")
             return node
@@ -185,5 +213,9 @@ class CandidateNode:
             id_card_image_url=node_properties.get("id_card_image_url"),
             candidate_card_image_url=node_properties.get("candidate_card_image_url"),
             face_recognition_data_url=node_properties.get("face_recognition_data_url"),
+            face_embedding=node_properties.get("face_embedding"),
+            face_embedding_model=node_properties.get("face_embedding_model"),
+            face_embedding_date=node_properties.get("face_embedding_date"),
+            face_embedding_source=node_properties.get("face_embedding_source"),
             additional_info=node_properties.get("additional_info")
         ) 

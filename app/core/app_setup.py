@@ -7,9 +7,11 @@ including middleware setup, CORS policy, and API documentation settings.
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.api.middleware import register_middleware
 from app.infrastructure.cache.redis_connection import redis_cache
+import os
 
 def create_application() -> FastAPI:
     """
@@ -103,5 +105,11 @@ def create_application() -> FastAPI:
 
     # Register all custom middleware
     register_middleware(app, redis_cache)
+    
+    # Mount static file directory for uploads
+    uploads_dir = os.getenv("UPLOAD_DIR", "uploads")
+    if not os.path.exists(uploads_dir):
+        os.makedirs(uploads_dir)
+    app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
     
     return app 

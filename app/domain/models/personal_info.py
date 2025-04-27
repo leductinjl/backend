@@ -5,7 +5,7 @@ This module defines the PersonalInfo model for storing detailed personal informa
 about candidates, including contact information and identification details.
 """
 
-from sqlalchemy import Column, String, Date, ForeignKey, DateTime
+from sqlalchemy import Column, String, Date, ForeignKey, DateTime, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.infrastructure.database.connection import Base
@@ -29,6 +29,13 @@ class PersonalInfo(Base):
     id_card_image_url = Column(String)
     candidate_card_image_url = Column(String)
     face_recognition_data_url = Column(String)
+    
+    # Face embedding fields
+    face_embedding = Column(JSON, nullable=True, comment="Vector đặc trưng khuôn mặt được mã hóa dưới dạng JSON")
+    face_embedding_model = Column(String(50), nullable=True, comment="Tên mô hình được sử dụng để tạo embedding")
+    face_embedding_date = Column(DateTime(timezone=True), nullable=True, comment="Thời điểm tạo embedding")
+    face_embedding_source = Column(String(20), nullable=True, comment="Nguồn ảnh (id_card, candidate_card, direct_face)")
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

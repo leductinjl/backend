@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
-from datetime import date
+from datetime import date, datetime
 from pydantic import model_validator
 
 # DTO cho kết quả tìm kiếm cơ bản
@@ -189,4 +189,17 @@ class CandidateSearchRequest(BaseModel):
     def validate_identification_fields(self) -> 'CandidateSearchRequest':
         if not self.candidate_id and not self.id_number:
             raise ValueError("Yêu cầu ít nhất một thông tin định danh (mã thí sinh hoặc số căn cước)")
-        return self 
+        return self
+
+class CandidateSearchResponse(BaseModel):
+    """
+    Response model for candidate search results.
+    """
+    candidate_id: str
+    full_name: str
+    similarity: float
+    face_embedding_source: Optional[str] = None
+    face_embedding_date: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True 

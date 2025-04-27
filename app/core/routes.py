@@ -8,6 +8,8 @@ organizing them by domain and ensuring consistent URL prefixes.
 from fastapi import FastAPI
 from app.config import settings
 import logging
+from fastapi.staticfiles import StaticFiles
+import os
 
 # Explicit imports for clarity and to avoid importing any unintended routers
 from app.api.controllers.candidate_router import router as candidate_router
@@ -41,6 +43,7 @@ from app.api.controllers.award_router import router as award_router
 from app.api.controllers.achievement_router import router as achievement_router
 from app.api.controllers.knowledge_graph_controller import router as knowledge_graph_router
 from app.api.controllers.candidate_search_router import router as search_router
+from app.api.controllers.image_search_router import router as image_search_router
 
 logger = logging.getLogger("api")
 
@@ -73,6 +76,12 @@ def setup_routes(app: FastAPI):
     Args:
         app: The FastAPI application to register routes with
     """
+    # Add static file serving for uploads
+    upload_dir = os.getenv("UPLOAD_DIR", "uploads")
+    if not os.path.exists(upload_dir):
+        os.makedirs(upload_dir)
+    app.mount("/uploads", StaticFiles(directory=upload_dir), name="uploads")
+
     # Register health router with special prefix
     app.include_router(
         health_router,
@@ -111,7 +120,8 @@ def setup_routes(app: FastAPI):
         (exam_score_history_router, "Exam Score Histories"),
         (certificate_router, "Certificates"),
         (exam_attempt_history_router, "Attempt Histories"),
-        (knowledge_graph_router, "Knowledge Graph")
+        (knowledge_graph_router, "Knowledge Graph"),
+        (image_search_router, "Image Search")
     ]
 
     # Register all routers using the list of tuples

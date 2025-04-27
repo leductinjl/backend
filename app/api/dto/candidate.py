@@ -57,4 +57,17 @@ class CandidateDetailResponse(CandidateResponse):
     credentials: Optional[List[Dict[str, Any]]] = None
 
     class Config:
-        from_attributes = True 
+        from_attributes = True
+
+class ImageUploadRequest(BaseModel):
+    """Request model for uploading candidate images."""
+    image_type: str = Field(..., description="Type of image (id_card, candidate_card, direct_face)")
+    source: str = Field(..., description="Source of the image (upload, camera, etc.)")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "image_type": "id_card",
+                "source": "upload"
+            }
+        } 
