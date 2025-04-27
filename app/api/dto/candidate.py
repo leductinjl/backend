@@ -9,6 +9,7 @@ class CandidateBase(BaseModel):
 # Model for personal information
 class PersonalInfoBase(BaseModel):
     birth_date: date = Field(..., description="Date of birth")
+    gender: Optional[str] = Field(None, max_length=10, description="Giới tính của thí sinh")
     id_number: Optional[str] = Field(None, max_length=12)
     phone_number: Optional[str] = Field(None, max_length=15)
     email: Optional[EmailStr] = None
@@ -31,6 +32,7 @@ class CandidateUpdate(BaseModel):
 # Request model for updating only personal information
 class PersonalInfoUpdate(BaseModel):
     birth_date: Optional[date] = Field(None, description="Date of birth")
+    gender: Optional[str] = Field(None, max_length=10, description="Giới tính của thí sinh")
     id_number: Optional[str] = Field(None, max_length=12)
     phone_number: Optional[str] = Field(None, max_length=15)
     email: Optional[EmailStr] = None

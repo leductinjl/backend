@@ -1,8 +1,8 @@
 """temp_check_1741936534
 
-Revision ID: 7d65c2656df2
-Revises: 655b50963fb5
-Create Date: 2025-04-27 06:44:44.200502
+Revision ID: acc4b22be154
+Revises: 02d1878986e7
+Create Date: 2025-04-27 11:12:51.441026
 
 This is an Alembic migration script template. 
 Each migration script is generated from this template and contains:
@@ -14,8 +14,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '7d65c2656df2'
-down_revision = '655b50963fb5'
+revision = 'acc4b22be154'
+down_revision = '02d1878986e7'
 branch_labels = None
 depends_on = None
 

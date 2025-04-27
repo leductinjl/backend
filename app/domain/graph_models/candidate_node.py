@@ -15,7 +15,7 @@ class CandidateNode:
     được tối ưu hóa cho các truy vấn knowledge graph.
     """
     
-    def __init__(self, candidate_id, full_name, birth_date=None, id_number=None, 
+    def __init__(self, candidate_id, full_name, birth_date=None, gender=None, id_number=None, 
                  phone_number=None, email=None, address=None, id_card_image_url=None,
                  candidate_card_image_url=None, face_recognition_data_url=None,
                  face_embedding=None, face_embedding_model=None, face_embedding_date=None,
@@ -28,6 +28,7 @@ class CandidateNode:
         
         # Thuộc tính bổ sung cho truy vấn - tùy chọn
         self.birth_date = birth_date
+        self.gender = gender  # Thêm trường gender
         self.id_number = id_number
         self.phone_number = phone_number
         self.email = email

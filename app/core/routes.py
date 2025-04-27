@@ -44,6 +44,7 @@ from app.api.controllers.achievement_router import router as achievement_router
 from app.api.controllers.knowledge_graph_controller import router as knowledge_graph_router
 from app.api.controllers.candidate_search_router import router as search_router
 from app.api.controllers.image_search_router import router as image_search_router
+from app.api.controllers.id_card_router import router as id_card_router
 
 logger = logging.getLogger("api")
 
@@ -121,7 +122,8 @@ def setup_routes(app: FastAPI):
         (certificate_router, "Certificates"),
         (exam_attempt_history_router, "Attempt Histories"),
         (knowledge_graph_router, "Knowledge Graph"),
-        (image_search_router, "Image Search")
+        (image_search_router, "Image Search"),
+        (id_card_router, "ID Cards")
     ]
 
     # Register all routers using the list of tuples

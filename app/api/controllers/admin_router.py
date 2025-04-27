@@ -717,7 +717,7 @@ async def upload_candidate_image(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error uploading image: {str(e)}"
-        )
+    )
 
 @router.get("/candidates/{candidate_id}/images/{image_type}", summary="Get Candidate Image URL")
 async def get_candidate_image(

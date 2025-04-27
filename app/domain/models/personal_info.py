@@ -21,6 +21,7 @@ class PersonalInfo(Base):
     
     candidate_id = Column(String(20), ForeignKey("candidate.candidate_id"), primary_key=True)
     birth_date = Column(Date, nullable=False)
+    gender = Column(String(10), nullable=True)
     id_number = Column(String(12), unique=True)
     phone_number = Column(String(15))
     email = Column(String(100))

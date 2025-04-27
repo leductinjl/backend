@@ -34,7 +34,7 @@ from app.api.controllers.education_level_router import router as education_level
 from app.api.controllers.recognition_router import router as recognition_router
 from app.api.controllers.award_router import router as award_router
 from app.api.controllers.achievement_router import router as achievement_router
-
+from app.api.controllers.id_card_router import router as id_card_router
 # Export all routers
 __all__ = [
     'candidate_router',
@@ -64,5 +64,6 @@ __all__ = [
     'education_level_router',
     'recognition_router',
     'award_router',
-    'achievement_router'
+    'achievement_router',
+    'id_card_router'
 ]

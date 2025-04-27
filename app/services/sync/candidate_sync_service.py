@@ -493,6 +493,7 @@ class CandidateSyncService(BaseSyncService):
             if hasattr(candidate, 'personal_info') and candidate.personal_info:
                 personal_info = candidate.personal_info
                 candidate_node.birth_date = personal_info.birth_date
+                candidate_node.gender = personal_info.gender
                 candidate_node.id_number = personal_info.id_number
                 candidate_node.phone_number = personal_info.phone_number
                 candidate_node.email = personal_info.email
@@ -516,6 +517,7 @@ class CandidateSyncService(BaseSyncService):
                 personal_info = candidate["personal_info"]
                 if personal_info:
                     candidate_node.birth_date = personal_info.get("birth_date")
+                    candidate_node.gender = personal_info.get("gender")
                     candidate_node.id_number = personal_info.get("id_number")
                     candidate_node.phone_number = personal_info.get("phone_number")
                     candidate_node.email = personal_info.get("email")
