@@ -260,6 +260,18 @@ class IdCardService:
                             info['birth_date'] = date(year, month, day)
                         except (ValueError, TypeError):
                             pass
+                    else:
+                        # Pattern 5: Look for any date format in the text
+                        dob_match = re.search(r'(\d{2}/\d{2}/\d{4})', text)
+                        if dob_match:
+                            dob_str = dob_match.group(1)
+                            try:
+                                day, month, year = map(int, dob_str.split('/'))
+                                # Check if the date is reasonable (not in the future)
+                                if year < 2100 and year > 1900:
+                                    info['birth_date'] = date(year, month, day)
+                            except (ValueError, TypeError):
+                                pass
             
         # Extract gender - try multiple patterns
         # Pattern 1: "Gender:" followed by gender
@@ -297,27 +309,113 @@ class IdCardService:
                             info['gender'] = 'Nam'
                         elif 'Female' in gender_str:
                             info['gender'] = 'Nữ'
+                    else:
+                        # Pattern 5: Look for "Nam" or "Nữ" anywhere in the text
+                        if 'Nam' in text:
+                            info['gender'] = 'Nam'
+                        elif 'Nữ' in text:
+                            info['gender'] = 'Nữ'
+                        elif 'Male' in text:
+                            info['gender'] = 'Nam'
+                        elif 'Female' in text:
+                            info['gender'] = 'Nữ'
+                
+        # Extract nationality - try multiple patterns
+        # Pattern 1: "Nationality:" followed by nationality
+        nationality_match = re.search(r'Nationality:?\s*([^\n]+)', text, re.IGNORECASE)
+        if nationality_match:
+            info['nationality'] = self._clean_text(nationality_match.group(1).strip())
+        else:
+            # Pattern 2: "Quốc tịch:" followed by nationality
+            nationality_match = re.search(r'Quốc tịch:?\s*([^\n]+)', text, re.IGNORECASE)
+            if nationality_match:
+                info['nationality'] = self._clean_text(nationality_match.group(1).strip())
+            else:
+                # Pattern 3: Look for nationality between "Quốc tịch" and "Dân tộc"
+                nationality_match = re.search(r'Quốc tịch.*?([^\n]+).*?Dân tộc', text, re.IGNORECASE | re.DOTALL)
+                if nationality_match:
+                    info['nationality'] = self._clean_text(nationality_match.group(1).strip())
+                else:
+                    # Pattern 4: Look for nationality between "Nationality" and "Ethnicity"
+                    nationality_match = re.search(r'Nationality.*?([^\n]+).*?Ethnicity', text, re.IGNORECASE | re.DOTALL)
+                    if nationality_match:
+                        info['nationality'] = self._clean_text(nationality_match.group(1).strip())
+                    else:
+                        # Default to "Việt Nam" if not found
+                        info['nationality'] = "Việt Nam"
+                
+        # Extract place of origin - try multiple patterns
+        # Pattern 1: "Place of origin:" followed by place
+        origin_match = re.search(r'Place of origin:?\s*([^\n]+)', text, re.IGNORECASE)
+        if origin_match:
+            info['place_of_origin'] = self._clean_text(origin_match.group(1).strip())
+        else:
+            # Pattern 2: "Quê quán:" followed by place
+            origin_match = re.search(r'Quê quán:?\s*([^\n]+)', text, re.IGNORECASE)
+            if origin_match:
+                info['place_of_origin'] = self._clean_text(origin_match.group(1).strip())
+            else:
+                # Pattern 3: Look for place of origin between "Quê quán" and "Nơi thường trú"
+                origin_match = re.search(r'Quê quán.*?([^\n]+).*?Nơi thường trú', text, re.IGNORECASE | re.DOTALL)
+                if origin_match:
+                    info['place_of_origin'] = self._clean_text(origin_match.group(1).strip())
+                else:
+                    # Pattern 4: Look for place of origin between "Place of origin" and "Place of residence"
+                    origin_match = re.search(r'Place of origin.*?([^\n]+).*?Place of residence', text, re.IGNORECASE | re.DOTALL)
+                    if origin_match:
+                        info['place_of_origin'] = self._clean_text(origin_match.group(1).strip())
+                    else:
+                        # Pattern 5: Look for "Place of ongin:" (common OCR error)
+                        origin_match = re.search(r'Place of ongin:?\s*([^\n]+)', text, re.IGNORECASE)
+                        if origin_match:
+                            info['place_of_origin'] = self._clean_text(origin_match.group(1).strip())
+                
+        # Extract place of residence - try multiple patterns
+        # Pattern 1: "Place of residence:" followed by place
+        residence_match = re.search(r'Place of residence:?\s*([^\n]+)', text, re.IGNORECASE)
+        if residence_match:
+            info['place_of_residence'] = self._clean_text(residence_match.group(1).strip())
+        else:
+            # Pattern 2: "Nơi thường trú:" followed by place
+            residence_match = re.search(r'Nơi thường trú:?\s*([^\n]+)', text, re.IGNORECASE)
+            if residence_match:
+                info['place_of_residence'] = self._clean_text(residence_match.group(1).strip())
+            else:
+                # Pattern 3: Look for place of residence between "Nơi thường trú" and end of text
+                residence_match = re.search(r'Nơi thường trú.*?([^\n]+(?:\n[^\n]+)*?)(?:\n\n|\Z)', text, re.IGNORECASE | re.DOTALL)
+                if residence_match:
+                    info['place_of_residence'] = self._clean_text(residence_match.group(1).strip())
+                else:
+                    # Pattern 4: Look for place of residence between "Place of residence" and end of text
+                    residence_match = re.search(r'Place of residence.*?([^\n]+(?:\n[^\n]+)*?)(?:\n\n|\Z)', text, re.IGNORECASE | re.DOTALL)
+                    if residence_match:
+                        info['place_of_residence'] = self._clean_text(residence_match.group(1).strip())
+                    else:
+                        # Pattern 5: Look for "Nơi thường trú" anywhere in the text
+                        residence_match = re.search(r'Nơi thường trú.*?([^\n]+(?:\n[^\n]+)*?)(?:\n|$)', text, re.IGNORECASE | re.DOTALL)
+                        if residence_match:
+                            info['place_of_residence'] = self._clean_text(residence_match.group(1).strip())
                 
         # Extract address - try multiple patterns
         # Pattern 1: "Address:" followed by address
         address_match = re.search(r'Address:?\s*([^\n]+)', text, re.IGNORECASE)
         if address_match:
-            info['address'] = address_match.group(1).strip()
+            info['address'] = self._clean_text(address_match.group(1).strip())
         else:
             # Pattern 2: "Địa chỉ:" followed by address
             address_match = re.search(r'Địa chỉ:?\s*([^\n]+)', text, re.IGNORECASE)
             if address_match:
-                info['address'] = address_match.group(1).strip()
+                info['address'] = self._clean_text(address_match.group(1).strip())
             else:
                 # Pattern 3: Look for text between "Địa chỉ" and end of text
                 address_match = re.search(r'Địa chỉ.*?([^\n]+(?:\n[^\n]+)*?)(?:\n\n|\Z)', text, re.IGNORECASE | re.DOTALL)
                 if address_match:
-                    info['address'] = address_match.group(1).strip()
+                    info['address'] = self._clean_text(address_match.group(1).strip())
                 else:
                     # Pattern 4: Look for text between "Address" and end of text
                     address_match = re.search(r'Address.*?([^\n]+(?:\n[^\n]+)*?)(?:\n\n|\Z)', text, re.IGNORECASE | re.DOTALL)
                     if address_match:
-                        info['address'] = address_match.group(1).strip()
+                        info['address'] = self._clean_text(address_match.group(1).strip())
             
         return info
         
@@ -342,6 +440,26 @@ class IdCardService:
         name = re.sub(r'\s+', ' ', name).strip()
         
         return name
+        
+    def _clean_text(self, text: str) -> str:
+        """
+        Clean extracted text by removing unwanted characters and OCR artifacts.
+        
+        Args:
+            text: The extracted text
+            
+        Returns:
+            str: Cleaned text
+        """
+        # Remove common OCR artifacts
+        text = re.sub(r'[/\\]', '', text)  # Remove slashes
+        text = re.sub(r'^[:\s]+', '', text)  # Remove leading colons and spaces
+        text = re.sub(r'[^\w\sÀ-ỹ,.-]', '', text)  # Keep only letters, numbers, spaces, commas, periods, and hyphens
+        
+        # Remove extra spaces
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        return text
         
     def _validate_qr_info(self, info: Dict[str, Any]) -> bool:
         """
