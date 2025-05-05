@@ -139,3 +139,4 @@ alembic upgrade head
 ### Data Synchronization with Neo4j
 
 Data is automatically synchronized from PostgreSQL to Neo4j when performing CRUD operations through services. 
+
